@@ -9,14 +9,14 @@ needs before it can serve a request.
 
 One package with two entries that never meet:
 
-- `worker-lazy` - the runtime primitive. `lazy(loader, context)` returns an
-  accessor for a module that is loaded the first time the accessor is called;
-  `withLazy(accessor, use)` calls into that module. No dependencies; the entry
-  bundles to under a kilobyte minified.
-- `worker-lazy/eslint` - an ESLint plugin with three rules that make deferral
-  the default: a static import has to defer through `lazy()` or say why it
-  cannot, a dynamic `import()` is allowed only as a `lazy()` loader, and the
-  Worker's entry handlers stay synchronous so the loaded path adds no
+- `@curlewlabs-com/worker-lazy` - the runtime primitive.
+  `lazy(loader, context)` returns an accessor for a module that is loaded the
+  first time the accessor is called; `withLazy(accessor, use)` calls into that
+  module. No dependencies; the entry bundles to under a kilobyte minified.
+- `@curlewlabs-com/worker-lazy/eslint` - an ESLint plugin with three rules that
+  make deferral the default: a static import has to defer through `lazy()` or
+  say why it cannot, a dynamic `import()` is allowed only as a `lazy()` loader,
+  and the Worker's entry handlers stay synchronous so the loaded path adds no
   microtask. A Worker that imports the primitive bundles none of the lint.
 
 ## Why it exists
@@ -57,12 +57,11 @@ time, so the rules come with the primitive.
 
 ## How to use it
 
-This package is not published to the npm registry, and a package there under
-the same name is not this one. Install it from a GitHub release's tarball URL,
-which your lockfile pins by its integrity hash:
+This package is not published to the npm registry. Install it from a GitHub
+release's tarball URL, which your lockfile pins by its integrity hash:
 
 ```sh
-npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.1.0/worker-lazy-0.1.0.tgz
+npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.1.0/curlewlabs-com-worker-lazy-0.1.0.tgz
 ```
 
 Each release's notes give its tarball's SHA-512 integrity, and the tarball has
@@ -75,7 +74,7 @@ Keep the entry module small and reach each handler through `lazy()`:
 
 ```ts
 // src/index.ts - the only module every isolate evaluates
-import { lazy, withLazy } from "worker-lazy";
+import { lazy, withLazy } from "@curlewlabs-com/worker-lazy";
 
 const api = lazy(() => import("./api.js"), {
   partition: "api",
@@ -153,7 +152,7 @@ is about to end.
 
 ```js
 // eslint.config.mjs
-import deferredLoading from "worker-lazy/eslint";
+import deferredLoading from "@curlewlabs-com/worker-lazy/eslint";
 
 export default [
   {
@@ -176,8 +175,8 @@ TypeScript sources need a parser that reports `import type`, such as
 `typescript-eslint`'s.
 
 - **`no-static-value-import`** - every static import or re-export of a value
-  is an error, except of `worker-lazy` itself. `import type` and
-  `export type` are erased at build and always allowed. A static edge the
+  is an error, except of `@curlewlabs-com/worker-lazy` itself. `import type`
+  and `export type` are erased at build and always allowed. A static edge the
   runtime genuinely needs before any handler runs - a Durable Object class it
   must find among the entry's exports, a superclass - is allowed by a
   directive on the line above it or at the end of its line, naming its exact
@@ -192,10 +191,10 @@ TypeScript sources need a parser that reports `import type`, such as
   attached to an import or export is itself an error.
 
 - **`dynamic-import-in-lazy-only`** - `import()` is allowed only as the body of
-  a loader passed to `worker-lazy`'s `lazy()` (aliases included; a local
-  function named `lazy` does not count), and only with a literal relative
-  specifier (`./` or `../`). A computed specifier makes the bundler guess a set
-  of files or leaves the import unresolved. A package specifier makes the
+  a loader passed to `@curlewlabs-com/worker-lazy`'s `lazy()` (aliases
+  included; a local function named `lazy` does not count), and only with a
+  literal relative specifier (`./` or `../`). A computed specifier makes the
+  bundler guess a set of files or leaves the import unresolved. A package specifier makes the
   package's entry a chunk entry point whose whole export surface is kept, so
   give the package one local module that re-exports what you use, and load
   that.
@@ -209,9 +208,9 @@ TypeScript sources need a parser that reports `import type`, such as
 
 ## Limits
 
-- The rules recognize the primitive only by the exact specifier `worker-lazy`.
-  Re-exporting `lazy` from a module of your own hides it from
-  `dynamic-import-in-lazy-only`.
+- The rules recognize the primitive only by the exact specifier
+  `@curlewlabs-com/worker-lazy`. Re-exporting `lazy` from a module of your own
+  hides it from `dynamic-import-in-lazy-only`.
 - `non-async-dispatch-shell` knows the `fetch` and `scheduled` handlers and
   classes extending a class named `DurableObject`. Other handlers (`queue`,
   `email`, `tail`) are not checked.

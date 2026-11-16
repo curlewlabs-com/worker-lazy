@@ -1,9 +1,9 @@
 // @ts-check
 // ESLint rules that keep a Worker's module loading deferred. `lazy()` /
-// `withLazy()` from worker-lazy is the deferral primitive and the default way to
-// reach a module; a static edge is the source-local exception, and carries an
-// adjacent directive naming the exact import/export source and the reason the
-// edge cannot defer. Either way an isolate evaluates and allocates only its
+// `withLazy()` from @curlewlabs-com/worker-lazy is the deferral primitive and
+// the default way to reach a module; a static edge is the source-local
+// exception, and carries an adjacent directive naming the exact import/export
+// source and the reason the edge cannot defer. Either way an isolate evaluates and allocates only its
 // working set.
 //
 // no-static-value-import: a static import/re-export edge must defer through
@@ -39,7 +39,7 @@ function hasStaticEdgeDirectiveMarker(text) {
 // must stay a static edge (it is the bootstrap every shell reaches for and cannot
 // lazy-load itself). Matched by the exact specifier: a subpath of the package, a
 // local module named "lazy", or a same-prefixed package is not the primitive.
-const PRIMITIVE_SPECIFIER = "worker-lazy";
+const PRIMITIVE_SPECIFIER = "@curlewlabs-com/worker-lazy";
 
 /** @param {string} source the import/export specifier */
 function isPrimitiveImport(source) {
@@ -82,7 +82,7 @@ const noStaticValueImport = {
     type: "problem",
     docs: {
       description:
-        "Disallow static value imports and re-exports; defer through lazy() from worker-lazy, or mark an edge that cannot defer with an adjacent source-local directive. import type is exempt.",
+        "Disallow static value imports and re-exports; defer through lazy() from @curlewlabs-com/worker-lazy, or mark an edge that cannot defer with an adjacent source-local directive. import type is exempt.",
     },
     schema: [
       {
@@ -93,9 +93,9 @@ const noStaticValueImport = {
     ],
     messages: {
       staticValueImport:
-        "Static value import of '{{source}}' extends the startup closure and couples this module to the imported module's loading fate. Defer through lazy() from worker-lazy - size is not a reason to keep it static; an edge reached only through function bodies defers however small. Only an edge the runtime needs before any handler runs (a class it must find among the entry's static exports, a superclass) earns a source-local `deferred-loading static-edge <source> -- <why>` directive; logging is not such an edge. A dedicated leaf beats folding it into an already-imported module, which couples every caller to the merged working set. `import type` is exempt.",
+        "Static value import of '{{source}}' extends the startup closure and couples this module to the imported module's loading fate. Defer through lazy() from @curlewlabs-com/worker-lazy - size is not a reason to keep it static; an edge reached only through function bodies defers however small. Only an edge the runtime needs before any handler runs (a class it must find among the entry's static exports, a superclass) earns a source-local `deferred-loading static-edge <source> -- <why>` directive; logging is not such an edge. A dedicated leaf beats folding it into an already-imported module, which couples every caller to the merged working set. `import type` is exempt.",
       staticValueReexport:
-        "Static value re-export of '{{source}}' extends the startup closure and couples this module to the re-exported module's loading fate. Reach it through lazy() at a use site instead, or drop the re-export. `export type ... from` is exempt. See the worker-lazy README.",
+        "Static value re-export of '{{source}}' extends the startup closure and couples this module to the re-exported module's loading fate. Reach it through lazy() at a use site instead, or drop the re-export. `export type ... from` is exempt. See the @curlewlabs-com/worker-lazy README.",
       badStaticEdgeDirective:
         "Static-edge directive names '{{directiveSource}}' but this edge imports/re-exports '{{source}}'. The directive must be adjacent to the import/export and match its source exactly.",
       malformedStaticEdgeDirective:
@@ -233,11 +233,11 @@ const dynamicImportInLazyOnly = {
     schema: [],
     messages: {
       bareDynamicImport:
-        "A dynamic import() must be the loader body of lazy(() => import(...)) from worker-lazy. A bare `await import()` reintroduces the per-layer warm microtask lazy() removes. See the worker-lazy README.",
+        "A dynamic import() must be the loader body of lazy(() => import(...)) from @curlewlabs-com/worker-lazy. A bare `await import()` reintroduces the per-layer warm microtask lazy() removes. See the @curlewlabs-com/worker-lazy README.",
       nonStaticDynamicImport:
-        "A lazy() loader must use a direct static import specifier. Arbitrary identifiers remain unresolved; concatenation and interpolated templates can synthesize an overbroad glob, and repo-style .js patterns do not resolve their .ts sources. Use a static-specifier thunk map for keyed loading. See the worker-lazy README.",
+        "A lazy() loader must use a direct static import specifier. Arbitrary identifiers remain unresolved; concatenation and interpolated templates can synthesize an overbroad glob, and repo-style .js patterns do not resolve their .ts sources. Use a static-specifier thunk map for keyed loading. See the @curlewlabs-com/worker-lazy README.",
       packageDynamicImport:
-        "A lazy() loader must import a relative module, not the package '{{specifier}}'. import() resolves to a namespace object, so the package entry becomes a chunk entry point whose ENTIRE export surface is preserved - a barrel that re-exports the library ships the library, and static-edge lint cannot see inside that deferred edge. Give the package one owner leaf that re-exports only what is used, and import that leaf. See the worker-lazy README.",
+        "A lazy() loader must import a relative module, not the package '{{specifier}}'. import() resolves to a namespace object, so the package entry becomes a chunk entry point whose ENTIRE export surface is preserved - a barrel that re-exports the library ships the library, and static-edge lint cannot see inside that deferred edge. Give the package one owner leaf that re-exports only what is used, and import that leaf. See the @curlewlabs-com/worker-lazy README.",
     },
   },
   create(context) {
@@ -254,7 +254,7 @@ const dynamicImportInLazyOnly = {
           call.arguments.includes(arrow);
         // The loader must be an argument to the primitive lazy() - not a bare
         // import(), and not a same-named local shadow or a `lazy` from another
-        // module (verified by resolving the callee to the worker-lazy import).
+        // module (verified by resolving the callee to the @curlewlabs-com/worker-lazy import).
         if (isLoaderShape && isPrimitiveLazyBinding(context, call.callee)) {
           const specifier =
             node.source.type === "Literal" &&
@@ -306,9 +306,9 @@ const nonAsyncDispatchShell = {
     schema: [],
     messages: {
       asyncDispatchShell:
-        "The '{{label}}' dispatch shell is async - an async entry wraps the warm path in an extra microtask, defeating lazy()'s zero-overhead warm dispatch. Make it a plain (non-async) shell that returns withLazy(accessor, (m) => m.handler(...)). See the worker-lazy README.",
+        "The '{{label}}' dispatch shell is async - an async entry wraps the warm path in an extra microtask, defeating lazy()'s zero-overhead warm dispatch. Make it a plain (non-async) shell that returns withLazy(accessor, (m) => m.handler(...)). See the @curlewlabs-com/worker-lazy README.",
       awaitInDispatchShell:
-        "A dispatch shell must contain no `await` - awaiting on the warm dispatch path reintroduces the per-trigger microtask lazy() removes. Move all awaited work into the module the shell reaches through lazy(). See the worker-lazy README.",
+        "A dispatch shell must contain no `await` - awaiting on the warm dispatch path reintroduces the per-trigger microtask lazy() removes. Move all awaited work into the module the shell reaches through lazy(). See the @curlewlabs-com/worker-lazy README.",
     },
   },
   create(context) {

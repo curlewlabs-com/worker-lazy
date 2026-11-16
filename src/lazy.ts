@@ -1,6 +1,7 @@
 // Deferred module loading for a Cloudflare Worker. Every deferred load goes
 // through `lazy()` / `withLazy()` - never a scattered bare `await import()` - and
-// the rules in this package's `worker-lazy/eslint` entry enforce that.
+// the rules in this package's `@curlewlabs-com/worker-lazy/eslint` entry
+// enforce that.
 //
 // Why a primitive instead of bare `await import()`: the ES module registry
 // already memoizes per isolate, so a second `import("./x.js")` reuses the cached

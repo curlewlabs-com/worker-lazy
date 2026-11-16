@@ -33,7 +33,7 @@ function lint(code: string, filename = "src/fixture.ts"): Linter.LintMessage[] {
 const STATIC = "deferred-loading/no-static-value-import";
 const DYNAMIC = "deferred-loading/dynamic-import-in-lazy-only";
 const SHELL = "deferred-loading/non-async-dispatch-shell";
-const PRIMITIVE = 'import { lazy } from "worker-lazy";';
+const PRIMITIVE = 'import { lazy } from "@curlewlabs-com/worker-lazy";';
 
 function only(messages: Linter.LintMessage[]): Linter.LintMessage {
   assert.equal(messages.length, 1, JSON.stringify(messages));
@@ -81,19 +81,21 @@ describe("no-static-value-import", () => {
   });
 
   it("exempts the primitive, which is the bootstrap and cannot defer itself", () => {
-    assert.equal(lint('import { lazy, withLazy } from "worker-lazy";').length, 0);
-    assert.equal(lint('export { lazy } from "worker-lazy";').length, 0);
+    assert.equal(lint('import { lazy, withLazy } from "@curlewlabs-com/worker-lazy";').length, 0);
+    assert.equal(lint('export { lazy } from "@curlewlabs-com/worker-lazy";').length, 0);
   });
 
   // The exemption is the exact package specifier, so it cannot be widened by a
   // local module that happens to be called "lazy", by the package's lint entry,
-  // or by a package whose name merely starts the same way.
+  // by a package whose name merely starts the same way, or by the same name
+  // outside the scope, which is anyone's to publish.
   it("does not exempt anything that only resembles the primitive", () => {
     for (const source of [
       "./lazy",
       "../lazy.js",
-      "worker-lazy/eslint",
-      "worker-lazy-extra",
+      "@curlewlabs-com/worker-lazy/eslint",
+      "@curlewlabs-com/worker-lazy-extra",
+      "worker-lazy",
     ]) {
       const m = only(lint(`import { lazy } from "${source}";`));
       assert.equal(m.ruleId, STATIC, source);
@@ -155,7 +157,7 @@ describe("dynamic-import-in-lazy-only", () => {
     assert.equal(lint(`${PRIMITIVE} const load = lazy(() => import(\`./bar.js\`));`).length, 0);
     assert.equal(lint(`${PRIMITIVE} const load = lazy(() => import("../../shared/bar.js"));`).length, 0);
     assert.equal(
-      lint('import { lazy as defer } from "worker-lazy"; const load = defer(() => import("./bar.js"));')
+      lint('import { lazy as defer } from "@curlewlabs-com/worker-lazy"; const load = defer(() => import("./bar.js"));')
         .length,
       0,
     );

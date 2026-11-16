@@ -40,10 +40,10 @@ jobs:
           (
             cd "$consumer"
             npm init --yes >/dev/null
-            npm install --ignore-scripts "$RUNNER_TEMP"/worker-lazy-*.tgz
+            npm install --ignore-scripts "$RUNNER_TEMP"/curlewlabs-com-worker-lazy-*.tgz
             node --input-type=module -e '
-              import { lazy, withLazy } from "worker-lazy";
-              import plugin from "worker-lazy/eslint";
+              import { lazy, withLazy } from "@curlewlabs-com/worker-lazy";
+              import plugin from "@curlewlabs-com/worker-lazy/eslint";
               const load = lazy(() => Promise.resolve({ v: 1 }), { partition: "p", operation: "o" });
               if ((await withLazy(load, (m) => m.v)) !== 1) throw new Error("cold path");
               if (withLazy(load, (m) => m.v) !== 1) throw new Error("warm path was not synchronous");

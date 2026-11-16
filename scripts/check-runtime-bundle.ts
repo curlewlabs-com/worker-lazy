@@ -1,10 +1,10 @@
 // Proves the package's runtime entry bundles to the primitive alone. The package
 // exists for what a Worker evaluates at isolate start, so the lint entry, or any
-// dependency, reaching a Worker's bundle through `import ... from "worker-lazy"`
-// would defeat it. Run against a directory where the packed tarball is installed,
+// dependency, reaching a Worker's bundle through an import of the package would
+// defeat it. Run against a directory where the packed tarball is installed,
 // which is what a consumer's bundler resolves.
 //
-//   node scripts/check-runtime-bundle.ts <directory with worker-lazy installed>
+//   node scripts/check-runtime-bundle.ts <directory the packed tarball is installed in>
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { build } from "esbuild";
@@ -18,7 +18,7 @@ const absWorkingDir = resolve(consumerDir);
 const result = await build({
   stdin: {
     contents:
-      'export { attemptToCrashTheIsolate, lazy, withLazy } from "worker-lazy";',
+      'export { attemptToCrashTheIsolate, lazy, withLazy } from "@curlewlabs-com/worker-lazy";',
     resolveDir: absWorkingDir,
     loader: "js",
   },
@@ -37,7 +37,9 @@ const result = await build({
 const inputs = Object.keys(result.metafile.inputs).filter(
   (input) => input !== "<stdin>",
 );
-assert.deepEqual(inputs, ["node_modules/worker-lazy/dist/lazy.js"]);
+assert.deepEqual(inputs, [
+  "node_modules/@curlewlabs-com/worker-lazy/dist/lazy.js",
+]);
 
 const [output] = result.outputFiles;
 assert.ok(output !== undefined);
