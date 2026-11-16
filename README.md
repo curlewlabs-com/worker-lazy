@@ -57,8 +57,9 @@ time, so the rules come with the primitive.
 
 ## How to use it
 
-It is not on the npm registry. Install a release's tarball from GitHub, which
-pins it by the integrity hash your lockfile records:
+This package is not published to the npm registry, and a package there under
+the same name is not this one. Install it from a GitHub release's tarball URL,
+which your lockfile pins by its integrity hash:
 
 ```sh
 npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.1.0/worker-lazy-0.1.0.tgz
