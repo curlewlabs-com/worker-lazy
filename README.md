@@ -239,6 +239,14 @@ a request to a Worker.
 - **`import x = require("./x")` is not checked.** TypeScript's import-equals
   form passes every rule. It is legal only where TypeScript emits or preserves
   CommonJS-style imports (`module: "preserve"` among them).
+- **`withLazy()` with an async callback types as a nested promise.** Its
+  declared return is `R | Promise<R>`, so a callback returning
+  `Promise<Response>` gives `Promise<Response> | Promise<Promise<Response>>`,
+  which does not satisfy `ExportedHandler`'s `Response | Promise<Response>`
+  (nor a scheduled handler's `void | Promise<void>`). At run time the promise
+  is flattened and the handler receives a `Response`; only the type is wrong.
+  Leave the default export untyped, as in the example above, or cast the
+  shell's result.
 - **Other default-export shapes are not seen as shells.** A default export
   wrapped in `satisfies` or `as`, one that names a variable, and a quoted
   `"fetch"` key are not checked by `non-async-dispatch-shell`.
