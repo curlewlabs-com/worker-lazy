@@ -1,0 +1,396 @@
+// @ts-check
+// ESLint rules that keep a Worker's module loading deferred. `lazy()` /
+// `withLazy()` from worker-lazy is the deferral primitive and the default way to
+// reach a module; a static edge is the source-local exception, and carries an
+// adjacent directive naming the exact import/export source and the reason the
+// edge cannot defer. Either way an isolate evaluates and allocates only its
+// working set.
+//
+// no-static-value-import: a static import/re-export edge must defer through
+// lazy() or carry an adjacent `deferred-loading static-edge` directive naming
+// that exact source. dynamic-import-in-lazy-only: a dynamic import() is
+// sanctioned only as a lazy() loader body, and only over a relative specifier -
+// dynamic-importing a package makes its entry an un-shakeable chunk entry point.
+// non-async-dispatch-shell: the entry shells must stay non-async and await-free
+// so the warm lazy() path adds no microtask; scope it with ESLint's `files` to
+// the entry and Durable Object shell files only, so the modules they load, which
+// legitimately await inside already-async I/O handlers, never trip it.
+//
+// This file is the package's lint entry only. The runtime entry never imports
+// it, so a Worker that bundles lazy() bundles none of this.
+
+const STATIC_EDGE_DIRECTIVE_MARKER = "deferred-loading static-edge";
+const STATIC_EDGE_DIRECTIVE =
+  /(?:^|\s)deferred-loading\s+static-edge\s+(\S+)\s+--\s+\S/;
+
+/** @param {string} text */
+function parseStaticEdgeDirective(text) {
+  const match = STATIC_EDGE_DIRECTIVE.exec(text);
+  if (!match) return null;
+  return { source: match[1] };
+}
+
+/** @param {string} text */
+function hasStaticEdgeDirectiveMarker(text) {
+  return text.includes(STATIC_EDGE_DIRECTIVE_MARKER);
+}
+
+// The deferral primitive is this package's runtime entry - the one module that
+// must stay a static edge (it is the bootstrap every shell reaches for and cannot
+// lazy-load itself). Matched by the exact specifier: a subpath of the package, a
+// local module named "lazy", or a same-prefixed package is not the primitive.
+const PRIMITIVE_SPECIFIER = "worker-lazy";
+
+/** @param {string} source the import/export specifier */
+function isPrimitiveImport(source) {
+  return source === PRIMITIVE_SPECIFIER;
+}
+
+// True when a call callee resolves to a binding that is `import { lazy } from <the
+// primitive>` - the sanctioned lazy(), not a local shadow (`function lazy(){}`) or
+// a `lazy` imported from some other module. An alias (`import { lazy as l }`) still
+// matches: it is resolved by its *imported* name against the primitive source.
+/**
+ * @param {import('eslint').Rule.RuleContext} context
+ * @param {any} ident the CallExpression callee (an Identifier)
+ */
+function isPrimitiveLazyBinding(context, ident) {
+  let variable = null;
+  for (
+    let scope = /** @type {import('eslint').Scope.Scope | null} */ (
+      context.sourceCode.getScope(ident)
+    );
+    scope && !variable;
+    scope = scope.upper
+  ) {
+    variable = scope.set.get(ident.name) ?? null;
+  }
+  if (!variable) return false;
+  return variable.defs.some(
+    (/** @type {any} */ def) =>
+      def.type === "ImportBinding" &&
+      def.node?.type === "ImportSpecifier" &&
+      def.node.imported?.name === "lazy" &&
+      def.parent?.type === "ImportDeclaration" &&
+      isPrimitiveImport(String(def.parent.source.value)),
+  );
+}
+
+/** @type {import('eslint').Rule.RuleModule} */
+const noStaticValueImport = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Disallow static value imports and re-exports; defer through lazy() from worker-lazy, or mark an edge that cannot defer with an adjacent source-local directive. import type is exempt.",
+    },
+    schema: [
+      {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    ],
+    messages: {
+      staticValueImport:
+        "Static value import of '{{source}}' extends the startup closure and couples this module to the imported module's loading fate. Defer through lazy() from worker-lazy - size is not a reason to keep it static; an edge reached only through function bodies defers however small. Only an edge the runtime needs before any handler runs (a class it must find among the entry's static exports, a superclass) earns a source-local `deferred-loading static-edge <source> -- <why>` directive; logging is not such an edge. A dedicated leaf beats folding it into an already-imported module, which couples every caller to the merged working set. `import type` is exempt.",
+      staticValueReexport:
+        "Static value re-export of '{{source}}' extends the startup closure and couples this module to the re-exported module's loading fate. Reach it through lazy() at a use site instead, or drop the re-export. `export type ... from` is exempt. See the worker-lazy README.",
+      badStaticEdgeDirective:
+        "Static-edge directive names '{{directiveSource}}' but this edge imports/re-exports '{{source}}'. The directive must be adjacent to the import/export and match its source exactly.",
+      malformedStaticEdgeDirective:
+        "Static-edge directive must be `deferred-loading static-edge <source> -- <why>` and be adjacent to the import/export it exempts.",
+      unusedStaticEdgeDirective:
+        "Static-edge directive is not attached to a static import/export edge. Remove it, or move it directly above or onto the import/export it exempts.",
+    },
+  },
+  create(context) {
+    const sourceCode = context.sourceCode;
+    const usedDirectiveComments = new Set();
+
+    /** @param {any} comment */
+    function reportMalformedDirective(comment) {
+      usedDirectiveComments.add(comment);
+      context.report({
+        node: comment,
+        messageId: "malformedStaticEdgeDirective",
+      });
+      return true;
+    }
+
+    /**
+     * @param {any} node
+     * @param {string} source
+     */
+    function hasSourceLocalDirective(node, source) {
+      const candidateComments = [];
+      const before = sourceCode.getCommentsBefore(node);
+      const lastBefore = before.at(-1);
+      if (lastBefore?.loc?.end.line === node.loc.start.line - 1) {
+        candidateComments.push(lastBefore);
+      }
+      for (const comment of sourceCode.getCommentsAfter(node)) {
+        if (comment.loc?.start.line === node.loc.end.line) {
+          candidateComments.push(comment);
+        }
+      }
+      for (const comment of candidateComments) {
+        if (!hasStaticEdgeDirectiveMarker(comment.value)) continue;
+        const directive = parseStaticEdgeDirective(comment.value);
+        if (directive === null) return reportMalformedDirective(comment);
+        usedDirectiveComments.add(comment);
+        if (directive.source !== source) {
+          context.report({
+            node: comment,
+            messageId: "badStaticEdgeDirective",
+            data: { directiveSource: directive.source, source },
+          });
+        }
+        return true;
+      }
+      return false;
+    }
+
+    // Report a static module-graph edge to `source` (an import or re-export)
+    // unless it is the deferral primitive or it carries a source-local directive
+    // matching the exact specifier.
+    /**
+     * @param {any} node
+     * @param {string} source
+     * @param {"staticValueImport" | "staticValueReexport"} plainMessageId
+     */
+    function reportEdge(node, source, plainMessageId) {
+      if (isPrimitiveImport(source)) return;
+      if (hasSourceLocalDirective(node, source)) return;
+      context.report({ node, messageId: plainMessageId, data: { source } });
+    }
+    return {
+      /** @param {import('estree').ImportDeclaration & { importKind?: string }} node */
+      ImportDeclaration(node) {
+        // `import type ... ` - erased at build, zero cost, always allowed.
+        if (node.importKind === "type") return;
+        // `import { type A, type B } from ...` with every specifier type-only is
+        // likewise fully erased; exempt it too. A side-effect import (no
+        // specifiers) is NOT erased, so it still fires.
+        if (
+          node.specifiers.length > 0 &&
+          node.specifiers.every(
+            (/** @type {any} */ s) => s.importKind === "type",
+          )
+        ) {
+          return;
+        }
+        reportEdge(node, String(node.source.value), "staticValueImport");
+      },
+      // Re-exports are static edges too: `export { x } from "./m"` and
+      // `export * from "./m"` eagerly load "./m" at module-eval, exactly like an
+      // import. `export type ... from` / all-type specifier lists are erased;
+      // `export { x }` with no source is a local export (no edge).
+      /** @param {import('estree').ExportNamedDeclaration & { exportKind?: string }} node */
+      ExportNamedDeclaration(node) {
+        if (!node.source) return;
+        if (node.exportKind === "type") return;
+        if (
+          node.specifiers.length > 0 &&
+          node.specifiers.every(
+            (/** @type {any} */ s) => s.exportKind === "type",
+          )
+        ) {
+          return;
+        }
+        reportEdge(node, String(node.source.value), "staticValueReexport");
+      },
+      /** @param {import('estree').ExportAllDeclaration & { exportKind?: string }} node */
+      ExportAllDeclaration(node) {
+        if (node.exportKind === "type") return;
+        reportEdge(node, String(node.source.value), "staticValueReexport");
+      },
+      "Program:exit"() {
+        for (const comment of sourceCode.getAllComments()) {
+          if (
+            hasStaticEdgeDirectiveMarker(comment.value) &&
+            !usedDirectiveComments.has(comment)
+          ) {
+            context.report({
+              node: comment,
+              messageId: "unusedStaticEdgeDirective",
+            });
+          }
+        }
+      },
+    };
+  },
+};
+
+/** @type {import('eslint').Rule.RuleModule} */
+const dynamicImportInLazyOnly = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Allow static relative-specifier dynamic import() only as the loader body of lazy(() => import(...)).",
+    },
+    schema: [],
+    messages: {
+      bareDynamicImport:
+        "A dynamic import() must be the loader body of lazy(() => import(...)) from worker-lazy. A bare `await import()` reintroduces the per-layer warm microtask lazy() removes. See the worker-lazy README.",
+      nonStaticDynamicImport:
+        "A lazy() loader must use a direct static import specifier. Arbitrary identifiers remain unresolved; concatenation and interpolated templates can synthesize an overbroad glob, and repo-style .js patterns do not resolve their .ts sources. Use a static-specifier thunk map for keyed loading. See the worker-lazy README.",
+      packageDynamicImport:
+        "A lazy() loader must import a relative module, not the package '{{specifier}}'. import() resolves to a namespace object, so the package entry becomes a chunk entry point whose ENTIRE export surface is preserved - a barrel that re-exports the library ships the library, and static-edge lint cannot see inside that deferred edge. Give the package one owner leaf that re-exports only what is used, and import that leaf. See the worker-lazy README.",
+    },
+  },
+  create(context) {
+    return {
+      /** @param {import('estree').ImportExpression & { parent?: any }} node */
+      ImportExpression(node) {
+        const arrow = node.parent;
+        const call = arrow?.parent;
+        const isLoaderShape =
+          arrow?.type === "ArrowFunctionExpression" &&
+          arrow.body === node &&
+          call?.type === "CallExpression" &&
+          call.callee?.type === "Identifier" &&
+          call.arguments.includes(arrow);
+        // The loader must be an argument to the primitive lazy() - not a bare
+        // import(), and not a same-named local shadow or a `lazy` from another
+        // module (verified by resolving the callee to the worker-lazy import).
+        if (isLoaderShape && isPrimitiveLazyBinding(context, call.callee)) {
+          const specifier =
+            node.source.type === "Literal" &&
+            typeof node.source.value === "string"
+              ? node.source.value
+              : node.source.type === "TemplateLiteral" &&
+                  node.source.expressions.length === 0
+                ? (node.source.quasis[0]?.value.cooked ?? null)
+                : null;
+          if (specifier === null) {
+            context.report({ node, messageId: "nonStaticDynamicImport" });
+            return;
+          }
+          // A relative specifier names a module in this tree, which the linker
+          // shakes against its importers. A bare specifier names a package, and
+          // the package entry it resolves to becomes an un-shakeable chunk entry
+          // point instead.
+          if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
+            context.report({
+              node,
+              messageId: "packageDynamicImport",
+              data: { specifier },
+            });
+          }
+          return;
+        }
+        context.report({ node, messageId: "bareDynamicImport" });
+      },
+    };
+  },
+};
+
+// The entry shells (fetch/scheduled in the default export, and every method of a
+// DurableObject subclass) must stay non-async and await-free: withLazy runs the
+// impl synchronously once its module is warm, so a plain shell adds ZERO
+// microtasks on the warm path. Marking the shell `async`, or awaiting anywhere
+// inside it, reintroduces the per-trigger microtask lazy() was built to remove.
+// Scope it with ESLint's `files` to just the shell files, so the modules the
+// shells load, with their legitimate `await` inside already-async I/O handlers,
+// never trip it.
+/** @type {import('eslint').Rule.RuleModule} */
+const nonAsyncDispatchShell = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Entry-point dispatch shells (default-export fetch/scheduled, DurableObject methods) must be non-async and await-free so the warm lazy() path adds no microtask.",
+    },
+    schema: [],
+    messages: {
+      asyncDispatchShell:
+        "The '{{label}}' dispatch shell is async - an async entry wraps the warm path in an extra microtask, defeating lazy()'s zero-overhead warm dispatch. Make it a plain (non-async) shell that returns withLazy(accessor, (m) => m.handler(...)). See the worker-lazy README.",
+      awaitInDispatchShell:
+        "A dispatch shell must contain no `await` - awaiting on the warm dispatch path reintroduces the per-trigger microtask lazy() removes. Move all awaited work into the module the shell reaches through lazy(). See the worker-lazy README.",
+    },
+  },
+  create(context) {
+    const sourceCode = context.sourceCode;
+    // Dispatch-shell function nodes found so far. Parent nodes are visited before
+    // their descendants, so every dispatch shell is recorded before the
+    // AwaitExpression visitor runs on any await nested inside it.
+    const dispatchFns = new Set();
+
+    /**
+     * @param {any} fnNode the shell's function node
+     * @param {string} label the trigger/method name, for the message
+     */
+    function recordDispatchFn(fnNode, label) {
+      dispatchFns.add(fnNode);
+      if (fnNode.async) {
+        context.report({
+          node: fnNode,
+          messageId: "asyncDispatchShell",
+          data: { label },
+        });
+      }
+    }
+
+    /** @param {any} classNode */
+    function isDurableObjectSubclass(classNode) {
+      const superClass = classNode?.superClass;
+      // `extends DurableObject` or `extends DurableObject<Env>` - the type args
+      // ride a sibling node, so the superClass itself is the bare Identifier.
+      return (
+        superClass?.type === "Identifier" && superClass.name === "DurableObject"
+      );
+    }
+
+    return {
+      /** @param {any} node */
+      ExportDefaultDeclaration(node) {
+        const obj = node.declaration;
+        if (obj?.type !== "ObjectExpression") return;
+        for (const prop of obj.properties) {
+          if (prop.type !== "Property") continue;
+          const name = prop.key?.type === "Identifier" ? prop.key.name : null;
+          if (name !== "fetch" && name !== "scheduled") continue;
+          const fn = prop.value;
+          if (
+            fn?.type === "FunctionExpression" ||
+            fn?.type === "ArrowFunctionExpression"
+          ) {
+            recordDispatchFn(fn, name);
+          }
+        }
+      },
+      /** @param {any} node */
+      MethodDefinition(node) {
+        // Only real methods (skip constructor / get / set) on a DO subclass.
+        if (node.kind !== "method") return;
+        const classNode = node.parent?.parent;
+        if (!isDurableObjectSubclass(classNode)) return;
+        if (node.value?.type === "FunctionExpression") {
+          const label =
+            node.key?.type === "Identifier" ? node.key.name : "method";
+          recordDispatchFn(node.value, label);
+        }
+      },
+      /** @param {any} node */
+      AwaitExpression(node) {
+        // An await anywhere lexically inside a dispatch shell (including the
+        // withLazy callback, which runs synchronously on the warm path) is a
+        // warm-path microtask. getAncestors returns root->parent, so a recorded
+        // shell node in the chain means this await is on the dispatch path.
+        if (sourceCode.getAncestors(node).some((a) => dispatchFns.has(a))) {
+          context.report({ node, messageId: "awaitInDispatchShell" });
+        }
+      },
+    };
+  },
+};
+
+const rules = {
+  "no-static-value-import": noStaticValueImport,
+  "dynamic-import-in-lazy-only": dynamicImportInLazyOnly,
+  "non-async-dispatch-shell": nonAsyncDispatchShell,
+};
+
+export default { rules };
