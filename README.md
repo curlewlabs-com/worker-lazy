@@ -199,11 +199,12 @@ TypeScript sources need a parser that reports `import type`, such as
   give the package one local module that re-exports what you use, and load
   that.
 
-- **`non-async-dispatch-shell`** - `fetch` and `scheduled` on the default
-  export, and every method of a class that extends `DurableObject`, must not be
-  `async` and must not contain `await`, so the loaded path runs without a
-  microtask. Put the awaited work in the module the shell loads, and scope this
-  rule to the shell files.
+- **`non-async-dispatch-shell`** - `fetch` and `scheduled` written as methods
+  or function properties of an object literal that is itself the default
+  export (`export default { fetch(...) { ... } }`), and every method of a class
+  that extends `DurableObject`, must not be `async` and must not contain
+  `await`, so the loaded path runs without a microtask. Put the awaited work in
+  the module the shell loads, and scope this rule to the shell files.
 
 ## Limits
 
@@ -217,6 +218,29 @@ TypeScript sources need a parser that reports `import type`, such as
   startup graph is the bundler's answer: an esbuild metafile's static
   `import-statement` edges from the entry output give the exact set, which is
   worth comparing against a list you have reviewed.
+
+## Known issues
+
+Each is a narrow case the code does not handle today. None can be triggered by
+a request to a Worker.
+
+- **An unreadable rejection value escapes termination.** If a loader rejects
+  with a value whose `instanceof Error` check itself throws (a revoked
+  `Proxy`), building the diagnostic throws before `attemptToCrashTheIsolate`
+  runs, and the accessor's promise rejects with that `TypeError` instead of
+  ending the isolate. A `console.error` that throws has the same effect. A
+  module's own top level is the only thing that can produce such a value.
+- **Inline type-only specifiers are exempted even when they are not erased.**
+  `import { type A } from "./x"` (every specifier `type`) passes
+  `no-static-value-import`. Under `verbatimModuleSyntax` the compiler and
+  esbuild keep it as `import {} from "./x"`, which still loads `./x`. The
+  declaration-level `import type { A } from "./x"` is erased in every mode.
+- **`import x = require("./x")` is not checked.** TypeScript's import-equals
+  form passes every rule. It is legal only where TypeScript emits or preserves
+  CommonJS-style imports (`module: "preserve"` among them).
+- **Other default-export shapes are not seen as shells.** A default export
+  wrapped in `satisfies` or `as`, one that names a variable, and a quoted
+  `"fetch"` key are not checked by `non-async-dispatch-shell`.
 
 ## License
 
