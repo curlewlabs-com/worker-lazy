@@ -1,0 +1,37 @@
+{
+  "name": "worker-lazy",
+  "version": "0.1.0",
+  "description": "Deferred module loading for Cloudflare Workers: a lazy() primitive with no warm-path await, and ESLint rules that keep a Worker's static graph small.",
+  "license": "MIT",
+  "author": "Curlew Labs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/curlewlabs-com/worker-lazy.git"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/lazy.d.ts",
+      "default": "./dist/lazy.js"
+    },
+    "./eslint": "./eslint/index.mjs"
+  },
+  "files": [
+    "dist",
+    "eslint"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"test/*.test.ts\"",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.13.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1"
+  }
+}
