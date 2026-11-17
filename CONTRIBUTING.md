@@ -1,5 +1,19 @@
 # Contributing
 
+Thanks for your interest in improving `worker-lazy`. The bar for a change is
+whether a deferred module still costs nothing once it is loaded, and a load
+that fails still ends the isolate instead of degrading quietly. Bug fixes, a
+rule that closes a gap the README's "Limits" names, and clearer docs are all
+welcome.
+
+## Before a large change
+
+Open an issue describing the problem first. `src/lazy.ts` carries the two
+safety invariants: the cold path caches the loaded module and never the
+in-flight promise, so no request awaits a promise another request created, and
+a failed load logs one line and ends the isolate rather than handing back a
+rejection. A short discussion up front saves rework.
+
 ## Releasing
 
 A patch or minor release needs no approval: whoever cuts it follows the steps
