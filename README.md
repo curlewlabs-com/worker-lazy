@@ -205,11 +205,13 @@ TypeScript sources need a parser that reports `import type`, such as
   that.
 
 - **`non-async-dispatch-shell`** - `fetch` and `scheduled` written as methods
-  or function properties of an object literal that is itself the default
-  export (`export default { fetch(...) { ... } }`), and every method of a class
-  that extends `DurableObject`, must not be `async` and must not contain
-  `await`, so the loaded path runs without a microtask. Put the awaited work in
-  the module the shell loads, and scope this rule to the shell files.
+  or function properties of the default-export object, and every method of a
+  class that extends `DurableObject`, must not be `async` and must not contain
+  `await`, so the loaded path runs without a microtask. The default export may
+  be the object literal itself, the literal under `satisfies` or `as`, or a
+  variable initialized with one (`export default handler`,
+  `export { handler as default }`). Put the awaited work in the module the
+  shell loads, and scope this rule to the shell files.
 
 ## Limits
 
@@ -218,34 +220,13 @@ TypeScript sources need a parser that reports `import type`, such as
   hides it from `dynamic-import-in-lazy-only`.
 - `non-async-dispatch-shell` knows the `fetch` and `scheduled` handlers and
   classes extending a class named `DurableObject`. Other handlers (`queue`,
-  `email`, `tail`) are not checked.
+  `email`, `tail`) are not checked, and neither is a default export the rule
+  cannot trace to an object literal in the same file (a function's result, an
+  imported object, a spread's members).
 - The rules see source text, not the bundle. Whether a module is in the
   startup graph is the bundler's answer: an esbuild metafile's static
   `import-statement` edges from the entry output give the exact set, which is
   worth comparing against a list you have reviewed.
-
-## Known issues
-
-Each is a narrow case the code does not handle today. None can be triggered by
-a request to a Worker.
-
-- **An unreadable rejection value escapes termination.** If a loader rejects
-  with a value whose `instanceof Error` check itself throws (a revoked
-  `Proxy`), building the diagnostic throws before `attemptToCrashTheIsolate`
-  runs, and the accessor's promise rejects with that `TypeError` instead of
-  ending the isolate. A `console.error` that throws has the same effect. A
-  module's own top level is the only thing that can produce such a value.
-- **`withLazy()` with an async callback types as a nested promise.** Its
-  declared return is `R | Promise<R>`, so a callback returning
-  `Promise<Response>` gives `Promise<Response> | Promise<Promise<Response>>`,
-  which does not satisfy `ExportedHandler`'s `Response | Promise<Response>`
-  (nor a scheduled handler's `void | Promise<void>`). At run time the promise
-  is flattened and the handler receives a `Response`; only the type is wrong.
-  Leave the default export untyped, as in the example above, or cast the
-  shell's result.
-- **Other default-export shapes are not seen as shells.** A default export
-  wrapped in `satisfies` or `as`, one that names a variable, and a quoted
-  `"fetch"` key are not checked by `non-async-dispatch-shell`.
 
 ## License
 
