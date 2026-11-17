@@ -56,7 +56,17 @@ describe("no-static-value-import", () => {
 
   it("exempts imports erased at build", () => {
     assert.equal(lint('import type { Foo } from "./bar";').length, 0);
-    assert.equal(lint('import { type A, type B } from "./bar";').length, 0);
+  });
+
+  // Under verbatimModuleSyntax an all-inline-type import is kept as
+  // `import {} from "./bar"`, which still loads "./bar"; only the
+  // declaration-level form is erased in every mode.
+  it("fires on all-inline-type specifier lists, which are not always erased", () => {
+    const imported = only(lint('import { type A, type B } from "./bar";'));
+    assert.equal(imported.ruleId, STATIC);
+    assert.equal(imported.messageId, "inlineTypeOnlyImport");
+    const reexported = only(lint('export { type A, type B } from "./bar";'));
+    assert.equal(reexported.messageId, "inlineTypeOnlyReexport");
   });
 
   // A side-effect import has no specifiers, so it is never erased and always
@@ -75,7 +85,6 @@ describe("no-static-value-import", () => {
 
   it("exempts type-only re-exports and local exports", () => {
     assert.equal(lint('export type { Foo } from "./bar";').length, 0);
-    assert.equal(lint('export { type A, type B } from "./bar";').length, 0);
     assert.equal(lint("export const x = 1;").length, 0);
     assert.equal(lint("const y = 1; export { y };").length, 0);
   });

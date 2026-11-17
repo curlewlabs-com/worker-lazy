@@ -76,6 +76,19 @@ function isPrimitiveLazyBinding(context, ident) {
   );
 }
 
+// `import { type A } from "./x"`: every specifier is type-only but the
+// declaration is not. The compiler erases it only when it drops unused imports;
+// under `verbatimModuleSyntax` it keeps `import {} from "./x"`, which loads
+// "./x". The declaration-level form is erased in every mode, so that is the one
+// exempted, and this shape gets a message naming it.
+/**
+ * @param {any[]} specifiers
+ * @param {"importKind" | "exportKind"} kindKey
+ */
+function allSpecifiersTypeOnly(specifiers, kindKey) {
+  return specifiers.length > 0 && specifiers.every((s) => s[kindKey] === "type");
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
 const noStaticValueImport = {
   meta: {
@@ -94,6 +107,10 @@ const noStaticValueImport = {
     messages: {
       staticValueImport:
         "Static value import of '{{source}}' extends the startup closure and couples this module to the imported module's loading fate. Defer through lazy() from @curlewlabs-com/worker-lazy - size is not a reason to keep it static; an edge reached only through function bodies defers however small. Only an edge the runtime needs before any handler runs (a class it must find among the entry's static exports, a superclass) earns a source-local `deferred-loading static-edge <source> -- <why>` directive; logging is not such an edge. A dedicated leaf beats folding it into an already-imported module, which couples every caller to the merged working set. `import type` is exempt.",
+      inlineTypeOnlyImport:
+        "Every specifier of this import of '{{source}}' is marked `type`, but the declaration is not, so it is erased only when the compiler drops unused imports: under `verbatimModuleSyntax` it is kept as `import {} from '{{source}}'`, which still loads the module at startup. Write `import type { ... } from '{{source}}'`, which is erased in every mode.",
+      inlineTypeOnlyReexport:
+        "Every specifier of this re-export of '{{source}}' is marked `type`, but the declaration is not, so under `verbatimModuleSyntax` it is kept as `export {} from '{{source}}'`, which still loads the module at startup. Write `export type { ... } from '{{source}}'`, which is erased in every mode.",
       staticValueReexport:
         "Static value re-export of '{{source}}' extends the startup closure and couples this module to the re-exported module's loading fate. Reach it through lazy() at a use site instead, or drop the re-export. `export type ... from` is exempt. See the @curlewlabs-com/worker-lazy README.",
       badStaticEdgeDirective:
@@ -157,7 +174,7 @@ const noStaticValueImport = {
     /**
      * @param {any} node
      * @param {string} source
-     * @param {"staticValueImport" | "staticValueReexport"} plainMessageId
+     * @param {"staticValueImport" | "staticValueReexport" | "inlineTypeOnlyImport" | "inlineTypeOnlyReexport"} plainMessageId
      */
     function reportEdge(node, source, plainMessageId) {
       if (isPrimitiveImport(source)) return;
@@ -167,38 +184,33 @@ const noStaticValueImport = {
     return {
       /** @param {import('estree').ImportDeclaration & { importKind?: string }} node */
       ImportDeclaration(node) {
-        // `import type ... ` - erased at build, zero cost, always allowed.
+        // `import type ...` is erased at build in every compiler mode, so it is
+        // always allowed. A side-effect import (no specifiers) is not erased,
+        // so it still fires.
         if (node.importKind === "type") return;
-        // `import { type A, type B } from ...` with every specifier type-only is
-        // likewise fully erased; exempt it too. A side-effect import (no
-        // specifiers) is NOT erased, so it still fires.
-        if (
-          node.specifiers.length > 0 &&
-          node.specifiers.every(
-            (/** @type {any} */ s) => s.importKind === "type",
-          )
-        ) {
-          return;
-        }
-        reportEdge(node, String(node.source.value), "staticValueImport");
+        reportEdge(
+          node,
+          String(node.source.value),
+          allSpecifiersTypeOnly(node.specifiers, "importKind")
+            ? "inlineTypeOnlyImport"
+            : "staticValueImport",
+        );
       },
       // Re-exports are static edges too: `export { x } from "./m"` and
       // `export * from "./m"` eagerly load "./m" at module-eval, exactly like an
-      // import. `export type ... from` / all-type specifier lists are erased;
+      // import. `export type ... from` is erased;
       // `export { x }` with no source is a local export (no edge).
       /** @param {import('estree').ExportNamedDeclaration & { exportKind?: string }} node */
       ExportNamedDeclaration(node) {
         if (!node.source) return;
         if (node.exportKind === "type") return;
-        if (
-          node.specifiers.length > 0 &&
-          node.specifiers.every(
-            (/** @type {any} */ s) => s.exportKind === "type",
-          )
-        ) {
-          return;
-        }
-        reportEdge(node, String(node.source.value), "staticValueReexport");
+        reportEdge(
+          node,
+          String(node.source.value),
+          allSpecifiersTypeOnly(node.specifiers, "exportKind")
+            ? "inlineTypeOnlyReexport"
+            : "staticValueReexport",
+        );
       },
       /** @param {import('estree').ExportAllDeclaration & { exportKind?: string }} node */
       ExportAllDeclaration(node) {

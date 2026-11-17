@@ -176,7 +176,11 @@ TypeScript sources need a parser that reports `import type`, such as
 
 - **`no-static-value-import`** - every static import or re-export of a value
   is an error, except of `@curlewlabs-com/worker-lazy` itself. `import type`
-  and `export type` are erased at build and always allowed. A static edge the
+  and `export type` are erased at build and always allowed. An import or
+  re-export whose specifiers are each marked `type` (`import { type A } from
+  "./x"`) is not: under `verbatimModuleSyntax` it is kept as
+  `import {} from "./x"` and still loads `./x`, so the rule asks for the
+  declaration-level form. A static edge the
   runtime genuinely needs before any handler runs - a Durable Object class it
   must find among the entry's exports, a superclass - is allowed by a
   directive on the line above it or at the end of its line, naming its exact
@@ -230,11 +234,6 @@ a request to a Worker.
   runs, and the accessor's promise rejects with that `TypeError` instead of
   ending the isolate. A `console.error` that throws has the same effect. A
   module's own top level is the only thing that can produce such a value.
-- **Inline type-only specifiers are exempted even when they are not erased.**
-  `import { type A } from "./x"` (every specifier `type`) passes
-  `no-static-value-import`. Under `verbatimModuleSyntax` the compiler and
-  esbuild keep it as `import {} from "./x"`, which still loads `./x`. The
-  declaration-level `import type { A } from "./x"` is erased in every mode.
 - **`import x = require("./x")` is not checked.** TypeScript's import-equals
   form passes every rule. It is legal only where TypeScript emits or preserves
   CommonJS-style imports (`module: "preserve"` among them).
