@@ -196,6 +196,19 @@ const noStaticValueImport = {
             : "staticValueImport",
         );
       },
+      // `import x = require("./m")` loads "./m" at module-eval like an import.
+      // `import x = Ns.member` names a namespace member and is no module edge.
+      /** @param {any} node */
+      TSImportEqualsDeclaration(node) {
+        if (node.importKind === "type") return;
+        const reference = node.moduleReference;
+        if (reference?.type !== "TSExternalModuleReference") return;
+        reportEdge(
+          node,
+          String(reference.expression.value),
+          "staticValueImport",
+        );
+      },
       // Re-exports are static edges too: `export { x } from "./m"` and
       // `export * from "./m"` eagerly load "./m" at module-eval, exactly like an
       // import. `export type ... from` is erased;

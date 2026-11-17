@@ -175,7 +175,8 @@ TypeScript sources need a parser that reports `import type`, such as
 `typescript-eslint`'s.
 
 - **`no-static-value-import`** - every static import or re-export of a value
-  is an error, except of `@curlewlabs-com/worker-lazy` itself. `import type`
+  is an error, TypeScript's `import x = require("./x")` included, except of
+  `@curlewlabs-com/worker-lazy` itself. `import type`
   and `export type` are erased at build and always allowed. An import or
   re-export whose specifiers are each marked `type` (`import { type A } from
   "./x"`) is not: under `verbatimModuleSyntax` it is kept as
@@ -234,9 +235,6 @@ a request to a Worker.
   runs, and the accessor's promise rejects with that `TypeError` instead of
   ending the isolate. A `console.error` that throws has the same effect. A
   module's own top level is the only thing that can produce such a value.
-- **`import x = require("./x")` is not checked.** TypeScript's import-equals
-  form passes every rule. It is legal only where TypeScript emits or preserves
-  CommonJS-style imports (`module: "preserve"` among them).
 - **`withLazy()` with an async callback types as a nested promise.** Its
   declared return is `R | Promise<R>`, so a callback returning
   `Promise<Response>` gives `Promise<Response> | Promise<Promise<Response>>`,

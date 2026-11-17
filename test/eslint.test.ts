@@ -75,6 +75,19 @@ describe("no-static-value-import", () => {
     assert.equal(only(lint('import "./bar";')).ruleId, STATIC);
   });
 
+  // TypeScript's CommonJS-style import loads its module at startup like any
+  // other static import.
+  it("fires on import-equals require, honouring import type", () => {
+    const m = only(lint('import impl = require("./impl");'));
+    assert.equal(m.ruleId, STATIC);
+    assert.equal(m.messageId, "staticValueImport");
+    assert.equal(lint('import type impl = require("./impl");').length, 0);
+    assert.equal(lint("namespace Ns { export const y = 1; }\nimport y = Ns.y;").length, 0);
+    const directive =
+      '// deferred-loading static-edge ./impl -- the runtime needs it first.\nimport impl = require("./impl");';
+    assert.equal(lint(directive).length, 0);
+  });
+
   it("fires on value re-exports, which load their source at module-eval", () => {
     const named = only(lint('export { foo } from "./bar";'));
     assert.equal(named.ruleId, STATIC);
