@@ -76,6 +76,19 @@ function isPrimitiveLazyBinding(context, ident) {
   );
 }
 
+// `import { type A } from "./x"`: every specifier is type-only but the
+// declaration is not. The compiler erases it only when it drops unused imports;
+// under `verbatimModuleSyntax` it keeps `import {} from "./x"`, which loads
+// "./x". The declaration-level form is erased in every mode, so that is the one
+// exempted, and this shape gets a message naming it.
+/**
+ * @param {any[]} specifiers
+ * @param {"importKind" | "exportKind"} kindKey
+ */
+function allSpecifiersTypeOnly(specifiers, kindKey) {
+  return specifiers.length > 0 && specifiers.every((s) => s[kindKey] === "type");
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
 const noStaticValueImport = {
   meta: {
@@ -94,6 +107,10 @@ const noStaticValueImport = {
     messages: {
       staticValueImport:
         "Static value import of '{{source}}' extends the startup closure and couples this module to the imported module's loading fate. Defer through lazy() from @curlewlabs-com/worker-lazy - size is not a reason to keep it static; an edge reached only through function bodies defers however small. Only an edge the runtime needs before any handler runs (a class it must find among the entry's static exports, a superclass) earns a source-local `deferred-loading static-edge <source> -- <why>` directive; logging is not such an edge. A dedicated leaf beats folding it into an already-imported module, which couples every caller to the merged working set. `import type` is exempt.",
+      inlineTypeOnlyImport:
+        "Every specifier of this import of '{{source}}' is marked `type`, but the declaration is not, so it is erased only when the compiler drops unused imports: under `verbatimModuleSyntax` it is kept as `import {} from '{{source}}'`, which still loads the module at startup. Write `import type { ... } from '{{source}}'`, which is erased in every mode.",
+      inlineTypeOnlyReexport:
+        "Every specifier of this re-export of '{{source}}' is marked `type`, but the declaration is not, so under `verbatimModuleSyntax` it is kept as `export {} from '{{source}}'`, which still loads the module at startup. Write `export type { ... } from '{{source}}'`, which is erased in every mode.",
       staticValueReexport:
         "Static value re-export of '{{source}}' extends the startup closure and couples this module to the re-exported module's loading fate. Reach it through lazy() at a use site instead, or drop the re-export. `export type ... from` is exempt. See the @curlewlabs-com/worker-lazy README.",
       badStaticEdgeDirective:
@@ -157,7 +174,7 @@ const noStaticValueImport = {
     /**
      * @param {any} node
      * @param {string} source
-     * @param {"staticValueImport" | "staticValueReexport"} plainMessageId
+     * @param {"staticValueImport" | "staticValueReexport" | "inlineTypeOnlyImport" | "inlineTypeOnlyReexport"} plainMessageId
      */
     function reportEdge(node, source, plainMessageId) {
       if (isPrimitiveImport(source)) return;
@@ -167,38 +184,46 @@ const noStaticValueImport = {
     return {
       /** @param {import('estree').ImportDeclaration & { importKind?: string }} node */
       ImportDeclaration(node) {
-        // `import type ... ` - erased at build, zero cost, always allowed.
+        // `import type ...` is erased at build in every compiler mode, so it is
+        // always allowed. A side-effect import (no specifiers) is not erased,
+        // so it still fires.
         if (node.importKind === "type") return;
-        // `import { type A, type B } from ...` with every specifier type-only is
-        // likewise fully erased; exempt it too. A side-effect import (no
-        // specifiers) is NOT erased, so it still fires.
-        if (
-          node.specifiers.length > 0 &&
-          node.specifiers.every(
-            (/** @type {any} */ s) => s.importKind === "type",
-          )
-        ) {
-          return;
-        }
-        reportEdge(node, String(node.source.value), "staticValueImport");
+        reportEdge(
+          node,
+          String(node.source.value),
+          allSpecifiersTypeOnly(node.specifiers, "importKind")
+            ? "inlineTypeOnlyImport"
+            : "staticValueImport",
+        );
+      },
+      // `import x = require("./m")` loads "./m" at module-eval like an import.
+      // `import x = Ns.member` names a namespace member and is no module edge.
+      /** @param {any} node */
+      TSImportEqualsDeclaration(node) {
+        if (node.importKind === "type") return;
+        const reference = node.moduleReference;
+        if (reference?.type !== "TSExternalModuleReference") return;
+        reportEdge(
+          node,
+          String(reference.expression.value),
+          "staticValueImport",
+        );
       },
       // Re-exports are static edges too: `export { x } from "./m"` and
       // `export * from "./m"` eagerly load "./m" at module-eval, exactly like an
-      // import. `export type ... from` / all-type specifier lists are erased;
+      // import. `export type ... from` is erased;
       // `export { x }` with no source is a local export (no edge).
       /** @param {import('estree').ExportNamedDeclaration & { exportKind?: string }} node */
       ExportNamedDeclaration(node) {
         if (!node.source) return;
         if (node.exportKind === "type") return;
-        if (
-          node.specifiers.length > 0 &&
-          node.specifiers.every(
-            (/** @type {any} */ s) => s.exportKind === "type",
-          )
-        ) {
-          return;
-        }
-        reportEdge(node, String(node.source.value), "staticValueReexport");
+        reportEdge(
+          node,
+          String(node.source.value),
+          allSpecifiersTypeOnly(node.specifiers, "exportKind")
+            ? "inlineTypeOnlyReexport"
+            : "staticValueReexport",
+        );
       },
       /** @param {import('estree').ExportAllDeclaration & { exportKind?: string }} node */
       ExportAllDeclaration(node) {
@@ -287,6 +312,33 @@ const dynamicImportInLazyOnly = {
   },
 };
 
+/** @param {any} node */
+function unwrapTypeExpression(node) {
+  let current = node;
+  while (
+    current?.type === "TSSatisfiesExpression" ||
+    current?.type === "TSAsExpression" ||
+    current?.type === "TSNonNullExpression" ||
+    current?.type === "TSTypeAssertion"
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+// A property's name when the source fixes it: `fetch`, `"fetch"`, or
+// `["fetch"]`. A computed key from an expression has no static name.
+/** @param {any} prop */
+function propertyKeyName(prop) {
+  const key = prop.key;
+  if (!prop.computed && key?.type === "Identifier") return key.name;
+  if (key?.type === "Literal" && typeof key.value === "string") return key.value;
+  if (key?.type === "TemplateLiteral" && key.expressions.length === 0) {
+    return key.quasis[0]?.value.cooked ?? null;
+  }
+  return null;
+}
+
 // The entry shells (fetch/scheduled in the default export, and every method of a
 // DurableObject subclass) must stay non-async and await-free: withLazy runs the
 // impl synchronously once its module is warm, so a plain shell adds ZERO
@@ -313,10 +365,13 @@ const nonAsyncDispatchShell = {
   },
   create(context) {
     const sourceCode = context.sourceCode;
-    // Dispatch-shell function nodes found so far. Parent nodes are visited before
-    // their descendants, so every dispatch shell is recorded before the
-    // AwaitExpression visitor runs on any await nested inside it.
+    // Dispatch-shell function nodes, and every await in the file. A default
+    // export can name an object declared above it, so a shell is not known
+    // until its export is seen; the awaits are judged once the whole file has
+    // been read.
     const dispatchFns = new Set();
+    /** @type {any[]} */
+    const awaits = [];
 
     /**
      * @param {any} fnNode the shell's function node
@@ -343,22 +398,69 @@ const nonAsyncDispatchShell = {
       );
     }
 
+    // The handler object a default export names: an object literal, through
+    // any `satisfies` / `as` / `!` wrapping, or an identifier whose
+    // declaration initializes it with one.
+    /**
+     * @param {any} expression
+     * @param {any} at a node in the scope the identifier is resolved from
+     */
+    function handlerObject(expression, at) {
+      const node = unwrapTypeExpression(expression);
+      if (node?.type === "ObjectExpression") return node;
+      if (node?.type !== "Identifier") return null;
+      for (
+        let scope = /** @type {import('eslint').Scope.Scope | null} */ (
+          sourceCode.getScope(at)
+        );
+        scope;
+        scope = scope.upper
+      ) {
+        const variable = scope.set.get(node.name);
+        if (!variable) continue;
+        for (const def of variable.defs) {
+          if (def.type !== "Variable") continue;
+          const init = unwrapTypeExpression(def.node.init);
+          if (init?.type === "ObjectExpression") return init;
+        }
+        return null;
+      }
+      return null;
+    }
+
+    /** @param {any} obj */
+    function recordHandlerObject(obj) {
+      if (obj === null) return;
+      for (const prop of obj.properties) {
+        if (prop.type !== "Property") continue;
+        const name = propertyKeyName(prop);
+        if (name !== "fetch" && name !== "scheduled") continue;
+        const fn = prop.value;
+        if (
+          fn?.type === "FunctionExpression" ||
+          fn?.type === "ArrowFunctionExpression"
+        ) {
+          recordDispatchFn(fn, name);
+        }
+      }
+    }
+
     return {
       /** @param {any} node */
       ExportDefaultDeclaration(node) {
-        const obj = node.declaration;
-        if (obj?.type !== "ObjectExpression") return;
-        for (const prop of obj.properties) {
-          if (prop.type !== "Property") continue;
-          const name = prop.key?.type === "Identifier" ? prop.key.name : null;
-          if (name !== "fetch" && name !== "scheduled") continue;
-          const fn = prop.value;
-          if (
-            fn?.type === "FunctionExpression" ||
-            fn?.type === "ArrowFunctionExpression"
-          ) {
-            recordDispatchFn(fn, name);
-          }
+        recordHandlerObject(handlerObject(node.declaration, node));
+      },
+      // `export { handler as default }`.
+      /** @param {any} node */
+      ExportNamedDeclaration(node) {
+        if (node.source) return;
+        for (const specifier of node.specifiers) {
+          const exported =
+            specifier.exported?.type === "Identifier"
+              ? specifier.exported.name
+              : specifier.exported?.value;
+          if (exported !== "default") continue;
+          recordHandlerObject(handlerObject(specifier.local, node));
         }
       },
       /** @param {any} node */
@@ -375,12 +477,16 @@ const nonAsyncDispatchShell = {
       },
       /** @param {any} node */
       AwaitExpression(node) {
+        awaits.push(node);
+      },
+      "Program:exit"() {
         // An await anywhere lexically inside a dispatch shell (including the
         // withLazy callback, which runs synchronously on the warm path) is a
-        // warm-path microtask. getAncestors returns root->parent, so a recorded
-        // shell node in the chain means this await is on the dispatch path.
-        if (sourceCode.getAncestors(node).some((a) => dispatchFns.has(a))) {
-          context.report({ node, messageId: "awaitInDispatchShell" });
+        // warm-path microtask.
+        for (const node of awaits) {
+          if (sourceCode.getAncestors(node).some((a) => dispatchFns.has(a))) {
+            context.report({ node, messageId: "awaitInDispatchShell" });
+          }
         }
       },
     };

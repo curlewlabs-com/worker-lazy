@@ -56,13 +56,36 @@ describe("no-static-value-import", () => {
 
   it("exempts imports erased at build", () => {
     assert.equal(lint('import type { Foo } from "./bar";').length, 0);
-    assert.equal(lint('import { type A, type B } from "./bar";').length, 0);
+  });
+
+  // Under verbatimModuleSyntax an all-inline-type import is kept as
+  // `import {} from "./bar"`, which still loads "./bar"; only the
+  // declaration-level form is erased in every mode.
+  it("fires on all-inline-type specifier lists, which are not always erased", () => {
+    const imported = only(lint('import { type A, type B } from "./bar";'));
+    assert.equal(imported.ruleId, STATIC);
+    assert.equal(imported.messageId, "inlineTypeOnlyImport");
+    const reexported = only(lint('export { type A, type B } from "./bar";'));
+    assert.equal(reexported.messageId, "inlineTypeOnlyReexport");
   });
 
   // A side-effect import has no specifiers, so it is never erased and always
   // extends the static graph.
   it("fires on a side-effect import", () => {
     assert.equal(only(lint('import "./bar";')).ruleId, STATIC);
+  });
+
+  // TypeScript's CommonJS-style import loads its module at startup like any
+  // other static import.
+  it("fires on import-equals require, honouring import type", () => {
+    const m = only(lint('import impl = require("./impl");'));
+    assert.equal(m.ruleId, STATIC);
+    assert.equal(m.messageId, "staticValueImport");
+    assert.equal(lint('import type impl = require("./impl");').length, 0);
+    assert.equal(lint("namespace Ns { export const y = 1; }\nimport y = Ns.y;").length, 0);
+    const directive =
+      '// deferred-loading static-edge ./impl -- the runtime needs it first.\nimport impl = require("./impl");';
+    assert.equal(lint(directive).length, 0);
   });
 
   it("fires on value re-exports, which load their source at module-eval", () => {
@@ -75,7 +98,6 @@ describe("no-static-value-import", () => {
 
   it("exempts type-only re-exports and local exports", () => {
     assert.equal(lint('export type { Foo } from "./bar";').length, 0);
-    assert.equal(lint('export { type A, type B } from "./bar";').length, 0);
     assert.equal(lint("export const x = 1;").length, 0);
     assert.equal(lint("const y = 1; export { y };").length, 0);
   });
@@ -211,6 +233,38 @@ describe("non-async-dispatch-shell", () => {
       assert.equal(m.length, 1, code);
       assert.equal(m[0]?.messageId, "asyncDispatchShell");
     }
+  });
+
+  // A typed Worker usually wraps or names its default export; each shape is
+  // still the object the runtime dispatches to.
+  it("sees through typed, named and quoted default-export shapes", () => {
+    const asyncFetch = 'async fetch(req) { return new Response("x"); }';
+    for (const code of [
+      `export default { ${asyncFetch} } satisfies ExportedHandler<Env>;`,
+      `export default { ${asyncFetch} } as ExportedHandler<Env>;`,
+      `const handler = { ${asyncFetch} }; export default handler;`,
+      `const handler = { ${asyncFetch} } satisfies ExportedHandler<Env>; export default handler;`,
+      `const handler = { ${asyncFetch} }; export { handler as default };`,
+      'export default { "fetch": async (req) => new Response("x") };',
+      'export default { ["scheduled"]: async () => {} };',
+    ]) {
+      const m = ofRule(lint(code), SHELL);
+      assert.equal(m.length, 1, code);
+      assert.equal(m[0]?.messageId, "asyncDispatchShell", code);
+    }
+  });
+
+  // The object is declared before its export names it, so the await inside is
+  // read before the rule knows the function is a shell.
+  it("fires on an await in a shell declared above its export", () => {
+    const code =
+      "const handler = { fetch(req) { return withLazy(impl, async (mod) => await mod.handleFetch(req)); } };\nexport default handler;";
+    assert.ok(ofRule(lint(code), SHELL).some((x) => x.messageId === "awaitInDispatchShell"));
+  });
+
+  it("leaves an object that is not the default export alone", () => {
+    const code = 'const other = { async fetch(req) { return await go(req); } }; export { other };';
+    assert.equal(ofRule(lint(code), SHELL).length, 0);
   });
 
   it("allows a plain shell that returns withLazy(...)", () => {

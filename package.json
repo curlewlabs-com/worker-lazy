@@ -1,6 +1,6 @@
 {
   "name": "@curlewlabs-com/worker-lazy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deferred module loading for Cloudflare Workers: a lazy() primitive with no warm-path await, and ESLint rules that keep a Worker's static graph small.",
   "license": "MIT",
   "author": "Curlew Labs",

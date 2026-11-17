@@ -234,6 +234,55 @@ describe("lazy", () => {
       restore();
     }
   });
+
+  it("terminates on a rejection value that cannot be inspected", async () => {
+    // `instanceof` on a revoked Proxy throws. If reading the value for the
+    // diagnostic threw on the path to the crash, the accessor would reject with
+    // that TypeError and a caller could catch a failed load.
+    let terminatorCalls = 0;
+    const restore = throwingTrap(() => {
+      terminatorCalls++;
+    });
+    const errorSpy = silenceConsoleError();
+    try {
+      const { proxy, revoke } = Proxy.revocable({}, {});
+      revoke();
+      const load = lazy(() => Promise.reject(proxy), TEST_CONTEXT);
+
+      await assert.rejects(load() as Promise<unknown>, DeferredLoadTerminated);
+      assert.equal(terminatorCalls, 1);
+      const line = loggedLines(errorSpy)[0] ?? "";
+      assert.ok(line.includes('error="<unprintable thrown value>"'));
+      assert.ok(line.includes('stack="<unreadable stack>"'));
+    } finally {
+      errorSpy.mock.restore();
+      restore();
+    }
+  });
+
+  it("terminates when writing the diagnostic throws", async () => {
+    // The diagnostic is best-effort: a console that throws must not turn a
+    // failed load into a rejection a caller could catch.
+    let terminatorCalls = 0;
+    const restore = throwingTrap(() => {
+      terminatorCalls++;
+    });
+    const errorSpy = mock.method(console, "error", () => {
+      throw new Error("console unavailable");
+    });
+    try {
+      const load = lazy(
+        () => Promise.reject(new Error("chunk unavailable")),
+        TEST_CONTEXT,
+      );
+
+      await assert.rejects(load() as Promise<unknown>, DeferredLoadTerminated);
+      assert.equal(terminatorCalls, 1);
+    } finally {
+      errorSpy.mock.restore();
+      restore();
+    }
+  });
 });
 
 describe("attemptToCrashTheIsolate", () => {
@@ -280,6 +329,25 @@ describe("withLazy", () => {
     const r = withLazy(load, (m) => m.value);
     assert.ok(r instanceof Promise);
     assert.equal(await r, 42);
+  });
+
+  it("types an async callback's cold result as one promise, as a handler declares it", async () => {
+    // A Worker's typed `fetch` returns `Response | Promise<Response>`. The cold
+    // path adopts the callback's promise, so a shell returning withLazy() over
+    // an async handler must type-check against that; `npm run typecheck`
+    // carries this half of the test.
+    const load = lazy(
+      () => Promise.resolve({ handle: async () => new Response("ok") }),
+      TEST_CONTEXT,
+    );
+    const shell: { fetch(): Response | Promise<Response> } = {
+      fetch() {
+        return withLazy(load, (m) => m.handle());
+      },
+    };
+
+    const cold = await shell.fetch();
+    assert.equal(await cold.text(), "ok");
   });
 
   it("does not classify or crash on a failure thrown by the dispatched handler", async () => {
