@@ -2,6 +2,11 @@
 
 ## Releasing
 
+A patch or minor release needs no approval: whoever cuts it follows the steps
+below in order, on a `main` commit whose required checks have passed. A major
+version, a 1.0, or a minor before 1.0 that changes an interface consumers use
+needs the maintainer's explicit approval before its tag is pushed.
+
 A release is a fixed `vMAJOR.MINOR.PATCH` tag and the GitHub Release published
 on it, carrying the `npm pack` tarball that consumers install by URL. The
 package is not published to the npm registry. The fixed-version-tag ruleset and
