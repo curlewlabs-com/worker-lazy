@@ -61,7 +61,7 @@ This package is not published to the npm registry. Install it from a GitHub
 release's tarball URL, which your lockfile pins by its integrity hash:
 
 ```sh
-npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.1.0/curlewlabs-com-worker-lazy-0.1.0.tgz
+npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.2.0/curlewlabs-com-worker-lazy-0.2.0.tgz
 ```
 
 Each release's notes give its tarball's SHA-512 integrity, and the tarball has
