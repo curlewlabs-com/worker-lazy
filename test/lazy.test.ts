@@ -234,6 +234,55 @@ describe("lazy", () => {
       restore();
     }
   });
+
+  it("terminates on a rejection value that cannot be inspected", async () => {
+    // `instanceof` on a revoked Proxy throws. If reading the value for the
+    // diagnostic threw on the path to the crash, the accessor would reject with
+    // that TypeError and a caller could catch a failed load.
+    let terminatorCalls = 0;
+    const restore = throwingTrap(() => {
+      terminatorCalls++;
+    });
+    const errorSpy = silenceConsoleError();
+    try {
+      const { proxy, revoke } = Proxy.revocable({}, {});
+      revoke();
+      const load = lazy(() => Promise.reject(proxy), TEST_CONTEXT);
+
+      await assert.rejects(load() as Promise<unknown>, DeferredLoadTerminated);
+      assert.equal(terminatorCalls, 1);
+      const line = loggedLines(errorSpy)[0] ?? "";
+      assert.ok(line.includes('error="<unprintable thrown value>"'));
+      assert.ok(line.includes('stack="<unreadable stack>"'));
+    } finally {
+      errorSpy.mock.restore();
+      restore();
+    }
+  });
+
+  it("terminates when writing the diagnostic throws", async () => {
+    // The diagnostic is best-effort: a console that throws must not turn a
+    // failed load into a rejection a caller could catch.
+    let terminatorCalls = 0;
+    const restore = throwingTrap(() => {
+      terminatorCalls++;
+    });
+    const errorSpy = mock.method(console, "error", () => {
+      throw new Error("console unavailable");
+    });
+    try {
+      const load = lazy(
+        () => Promise.reject(new Error("chunk unavailable")),
+        TEST_CONTEXT,
+      );
+
+      await assert.rejects(load() as Promise<unknown>, DeferredLoadTerminated);
+      assert.equal(terminatorCalls, 1);
+    } finally {
+      errorSpy.mock.restore();
+      restore();
+    }
+  });
 });
 
 describe("attemptToCrashTheIsolate", () => {

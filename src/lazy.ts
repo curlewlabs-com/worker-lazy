@@ -59,9 +59,8 @@ function printableError(error: unknown): string {
 }
 
 function errorStack(error: unknown): string {
-  if (!(error instanceof Error)) return "";
   try {
-    return error.stack ?? "";
+    return error instanceof Error ? (error.stack ?? "") : "";
   } catch {
     return "<unreadable stack>";
   }
@@ -153,9 +152,14 @@ export function lazy<T>(
         // a rejection to await. Emit the diagnostic a post-deploy check reads
         // (synchronously, before the crash, so it lands in the invocation's log
         // buffer), then terminate the isolate.
-        console.error(
-          `[deferred-load] reason=deferred_module_load_failed partition=${context.partition} operation=${context.operation} error=${JSON.stringify(printableError(err))} stack=${JSON.stringify(errorStack(err))}`,
-        );
+        try {
+          console.error(
+            `[deferred-load] reason=deferred_module_load_failed partition=${context.partition} operation=${context.operation} error=${JSON.stringify(printableError(err))} stack=${JSON.stringify(errorStack(err))}`,
+          );
+        } catch {
+          // The diagnostic is best-effort; nothing that goes wrong while
+          // writing it may stop the termination below.
+        }
         return attemptToCrashTheIsolate(
           `partition=${context.partition} operation=${context.operation}`,
         );
