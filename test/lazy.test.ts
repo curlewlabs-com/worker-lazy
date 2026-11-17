@@ -331,6 +331,25 @@ describe("withLazy", () => {
     assert.equal(await r, 42);
   });
 
+  it("types an async callback's cold result as one promise, as a handler declares it", async () => {
+    // A Worker's typed `fetch` returns `Response | Promise<Response>`. The cold
+    // path adopts the callback's promise, so a shell returning withLazy() over
+    // an async handler must type-check against that; `npm run typecheck`
+    // carries this half of the test.
+    const load = lazy(
+      () => Promise.resolve({ handle: async () => new Response("ok") }),
+      TEST_CONTEXT,
+    );
+    const shell: { fetch(): Response | Promise<Response> } = {
+      fetch() {
+        return withLazy(load, (m) => m.handle());
+      },
+    };
+
+    const cold = await shell.fetch();
+    assert.equal(await cold.text(), "ok");
+  });
+
   it("does not classify or crash on a failure thrown by the dispatched handler", async () => {
     // A `use` throw is a runtime fault, not a load failure - it propagates
     // normally (no terminate, no diagnostic), so a handler bug stays an ordinary
