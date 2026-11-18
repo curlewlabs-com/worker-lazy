@@ -192,6 +192,54 @@ export function get(): Refresh | null {
     },
   );
 
+  // An optional or nullable promise property has the type
+  // `Promise<T> | undefined`, which the checker gives no common `then`, so
+  // each union member has to be asked. Missing it would pass the singleflight
+  // in its commonest record form.
+  lintCase(
+    "an optional promise property fires",
+    `
+const state: { pending?: Promise<number> } = {};
+export function load(): Promise<number> {
+  return (state.pending ??= Promise.resolve(1));
+}
+`,
+    (m) => {
+      assert.equal(m.length, 1);
+    },
+  );
+
+  lintCase(
+    "a promise-or-value property fires",
+    `
+let slot: { value: Promise<number> | number } = { value: 0 };
+export function get(): Promise<number> | number {
+  return slot.value;
+}
+`,
+    (m) => {
+      assert.equal(m.length, 1);
+    },
+  );
+
+  // Thenable is structural: await adopts anything with a callable then.
+  lintCase(
+    "a custom thenable fires",
+    `
+const ready: { then(resolve: (v: number) => void): void } = {
+  then(resolve) {
+    resolve(1);
+  },
+};
+export function get(): typeof ready {
+  return ready;
+}
+`,
+    (m) => {
+      assert.equal(m.length, 1);
+    },
+  );
+
   // A module-scope `const` promise is the hazard with no window at all: every
   // request after the first adopts it.
   lintCase(
@@ -265,6 +313,41 @@ export async function get(): Promise<string> {
   if (tokenCache) return tokenCache.token;
   tokenCache = { token: await Promise.resolve("t"), expiresAt: 0 };
   return tokenCache.token;
+}
+`,
+    (m) => {
+      assert.equal(m.length, 0);
+    },
+  );
+});
+
+describe("no-module-scope-promise-adoption: what is not a promise or not a read", () => {
+  // A field named `then` that cannot be called makes nothing thenable; a
+  // resolved record that happens to carry one is a plain value.
+  lintCase(
+    "a record with a non-callable then field passes",
+    `
+const cached = { then: "later", token: "t" };
+export function get(): string {
+  return cached.token;
+}
+`,
+    (m) => {
+      assert.equal(m.length, 0);
+    },
+  );
+
+  // `typeof x` in a type position is erased at build, so it reads nothing at
+  // run time, plain or qualified.
+  lintCase(
+    "typeof in a type position passes",
+    `
+let pending: Promise<number> | null = null;
+const state: { pending?: Promise<number> } = {};
+export type Result = Awaited<typeof pending>;
+export type Field = typeof state.pending;
+export function start(): void {
+  pending = Promise.resolve(1);
 }
 `,
     (m) => {

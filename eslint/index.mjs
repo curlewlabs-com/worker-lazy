@@ -583,6 +583,27 @@ function isNonValueRead(identifier) {
   return false;
 }
 
+// Thenable means some union member has a CALLABLE `then`: a resolved record
+// with a `then` field of another type is a plain value. The union is split
+// because the checker resolves a property on a union only when every member
+// has it, so `Promise<T> | undefined` - every optional promise - would
+// otherwise read as having no `then` at all.
+/**
+ * @param {any} checker
+ * @param {any} type
+ * @param {any} tsNode location the `then` type is resolved at
+ * @returns {boolean}
+ */
+function isThenable(checker, type, tsNode) {
+  const constituents = type.isUnion() ? type.types : [type];
+  return constituents.some((/** @type {any} */ constituent) => {
+    const then = checker.getPropertyOfType(constituent, "then");
+    if (then === undefined) return false;
+    const thenType = checker.getTypeOfSymbolAtLocation(then, tsNode);
+    return checker.getNonNullableType(thenType).getCallSignatures().length > 0;
+  });
+}
+
 // A type holds a promise if it is thenable, or - one level down - has a
 // thenable-typed PROPERTY. One level is what separates a record holding a
 // promise (`{ key, promise: Promise<T> }`) from a container parameterized by a
@@ -596,17 +617,24 @@ function isNonValueRead(identifier) {
 function holdsPromise(checker, type, tsNode) {
   const constituents = type.isUnion() ? type.types : [type];
   for (const constituent of constituents) {
-    if (checker.getPropertyOfType(constituent, "then") !== undefined) {
-      return true;
-    }
+    if (isThenable(checker, constituent, tsNode)) return true;
     for (const property of checker.getPropertiesOfType(constituent)) {
       const propertyType = checker.getTypeOfSymbolAtLocation(property, tsNode);
-      if (checker.getPropertyOfType(propertyType, "then") !== undefined) {
-        return true;
-      }
+      if (isThenable(checker, propertyType, tsNode)) return true;
     }
   }
   return false;
+}
+
+// `typeof x` in a type position (`type T = Awaited<typeof x>`) is erased at
+// build, so it reads nothing at run time. typescript-eslint records it as a
+// value reference, so the AST decides: the identifier, or the head of a
+// qualified name (`typeof x.y`), under a TSTypeQuery.
+/** @param {any} identifier */
+function isInTypeQuery(identifier) {
+  let node = identifier.parent;
+  while (node?.type === "TSQualifiedName") node = node.parent;
+  return node?.type === "TSTypeQuery";
 }
 
 /** @type {import('eslint').Rule.RuleModule} */
@@ -655,6 +683,7 @@ const noModuleScopePromiseAdoption = {
           // as well as writes, and what it reads back is the in-flight promise
           // of whichever request got there first.
           if (!reference.isRead()) continue;
+          if (isInTypeQuery(reference.identifier)) continue;
           if (isNonValueRead(reference.identifier)) continue;
           context.report({
             node: reference.identifier,
