@@ -185,9 +185,6 @@ const noModuleScopePromiseAdoption = {
         // as well as writes, and what it reads back is the in-flight promise
         // of whichever request got there first.
         if (!reference.isRead()) continue;
-        // A type annotation reads nothing at run time, through a namespace
-        // import (`Shared.Result`) as anywhere else.
-        if (reference.isValueReference === false) continue;
         if (isInTypeQuery(reference.identifier)) continue;
         if (isNonValueRead(reference.identifier)) continue;
         context.report({
