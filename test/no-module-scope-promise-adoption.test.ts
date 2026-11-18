@@ -59,8 +59,9 @@ const eslint = new ESLint({
 
 // The modules the import cases import from. No case lints them, and they are
 // written before any case for the reason lintCase gives. shared.ts exports
-// promise holders beside a function, a plain value and types; helpers.ts
-// exports no promise at all.
+// promise holders beside a function, a plain value and types; pending.ts's
+// and thenable.ts's module objects are themselves thenable; helpers.ts exports
+// no promise at all.
 writeFileSync(
   join(FIXTURE_DIR, "shared.ts"),
   `
@@ -75,6 +76,21 @@ export class Cache {
   size = 0;
 }
 export default ready;
+`,
+);
+writeFileSync(
+  join(FIXTURE_DIR, "pending.ts"),
+  `
+declare const pending: Promise<number>;
+export = pending;
+`,
+);
+writeFileSync(
+  join(FIXTURE_DIR, "thenable.ts"),
+  `
+export function then(resolve: (v: number) => void): void {
+  resolve(1);
+}
 `,
 );
 writeFileSync(
@@ -359,6 +375,45 @@ export const c: Cached = new Cached();
           [6, "m.ready"],
           [8, "Cached"],
         ],
+      );
+    },
+  );
+
+  // A key the source spells out names its export as a dot access does.
+  lintCase(
+    "a literal computed key on a namespace is judged by its export",
+    `
+import * as ns from "./shared";
+export function get(): Promise<number> | null {
+  ns["start"]();
+  if (ns["ready"]) return ns["ready"];
+  return null;
+}
+`,
+    (m) => {
+      assert.deepEqual(
+        m.map((x) => [x.line, x.message.match(/Module-scope '([^']+)'/)?.[1]]),
+        [[5, "ns.ready"]],
+      );
+    },
+  );
+
+  // When the module object is itself thenable, there is no export to judge
+  // apart from it: reading the binding at all reads the promise.
+  lintCase(
+    "a module object that is itself thenable fires",
+    `
+import pending = require("./pending");
+import * as thenable from "./thenable";
+export async function get(): Promise<number> {
+  await thenable;
+  return pending;
+}
+`,
+    (m) => {
+      assert.deepEqual(
+        m.map((x) => x.line),
+        [5, 6],
       );
     },
   );

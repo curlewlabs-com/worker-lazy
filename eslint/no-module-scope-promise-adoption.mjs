@@ -170,17 +170,19 @@ function runtimeReads(variable) {
   );
 }
 
-// The export a module object's reference names: `ns.x`, or `ns.x` in an
-// `import y = ns.x` alias. Undefined when the module object itself is used.
+// The export a module object's reference names: `ns.x`, `ns["x"]`, or `ns.x`
+// in an `import y = ns.x` alias. Undefined when the module object itself is
+// used, or the key is computed at run time.
 /** @param {any} identifier */
 function exportNamed(identifier) {
   const parent = identifier.parent;
-  if (
-    parent.type === "MemberExpression" &&
-    parent.object === identifier &&
-    !parent.computed
-  ) {
-    return parent.property.name;
+  if (parent.type === "MemberExpression" && parent.object === identifier) {
+    const key = parent.property;
+    if (!parent.computed) return key.name;
+    if (key.type === "Literal" && typeof key.value === "string") {
+      return key.value;
+    }
+    return undefined;
   }
   if (parent.type === "TSQualifiedName" && parent.left === identifier) {
     return parent.right.name;
@@ -289,9 +291,13 @@ const noModuleScopePromiseAdoption = {
       const definition = variable.defs[0];
       const tsNode = services.esTreeNodeToTSNodeMap.get(definition.name);
       if (tsNode === undefined) return;
+      // A module object that is itself thenable (`export = promise`, or a
+      // module exporting a `then` function) is adopted by every read of it,
+      // as any promise is.
       if (
         definition.type === "ImportBinding" &&
-        bindsModuleObject(definition)
+        bindsModuleObject(definition) &&
+        !isThenable(checker, checker.getTypeAtLocation(tsNode), tsNode)
       ) {
         checkModuleObject(variable, tsNode);
       } else {
