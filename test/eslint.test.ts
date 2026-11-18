@@ -82,7 +82,10 @@ describe("no-static-value-import", () => {
     assert.equal(m.ruleId, STATIC);
     assert.equal(m.messageId, "staticValueImport");
     assert.equal(lint('import type impl = require("./impl");').length, 0);
-    assert.equal(lint("namespace Ns { export const y = 1; }\nimport y = Ns.y;").length, 0);
+    assert.equal(
+      lint("namespace Ns { export const y = 1; }\nimport y = Ns.y;").length,
+      0,
+    );
     const directive =
       '// deferred-loading static-edge ./impl -- the runtime needs it first.\nimport impl = require("./impl");';
     assert.equal(lint(directive).length, 0);
@@ -103,8 +106,15 @@ describe("no-static-value-import", () => {
   });
 
   it("exempts the primitive, which is the bootstrap and cannot defer itself", () => {
-    assert.equal(lint('import { lazy, withLazy } from "@curlewlabs-com/worker-lazy";').length, 0);
-    assert.equal(lint('export { lazy } from "@curlewlabs-com/worker-lazy";').length, 0);
+    assert.equal(
+      lint('import { lazy, withLazy } from "@curlewlabs-com/worker-lazy";')
+        .length,
+      0,
+    );
+    assert.equal(
+      lint('export { lazy } from "@curlewlabs-com/worker-lazy";').length,
+      0,
+    );
   });
 
   // The exemption is the exact package specifier, so it cannot be widened by a
@@ -154,11 +164,15 @@ describe("no-static-value-import", () => {
       '// deferred-loading static-edge ./bar -- reason\n\nimport { foo } from "./bar";',
     );
     assert.equal(detached.length, 2);
-    assert.ok(detached.some((x) => x.messageId === "unusedStaticEdgeDirective"));
+    assert.ok(
+      detached.some((x) => x.messageId === "unusedStaticEdgeDirective"),
+    );
     assert.ok(detached.some((x) => x.messageId === "staticValueImport"));
 
     const malformed = only(
-      lint('// deferred-loading static-edge ./bar\nimport { foo } from "./bar";'),
+      lint(
+        '// deferred-loading static-edge ./bar\nimport { foo } from "./bar";',
+      ),
     );
     assert.equal(malformed.messageId, "malformedStaticEdgeDirective");
   });
@@ -167,7 +181,9 @@ describe("no-static-value-import", () => {
 describe("dynamic-import-in-lazy-only", () => {
   it("fires on a bare await import()", () => {
     const m = only(
-      lint('async function f() { const mod = await import("./bar"); return mod; }'),
+      lint(
+        'async function f() { const mod = await import("./bar"); return mod; }',
+      ),
     );
     assert.equal(m.ruleId, DYNAMIC);
     assert.equal(m.severity, 2);
@@ -175,12 +191,25 @@ describe("dynamic-import-in-lazy-only", () => {
   });
 
   it("allows import() as the loader body of the primitive lazy()", () => {
-    assert.equal(lint(`${PRIMITIVE} const load = lazy(() => import("./bar.js"));`).length, 0);
-    assert.equal(lint(`${PRIMITIVE} const load = lazy(() => import(\`./bar.js\`));`).length, 0);
-    assert.equal(lint(`${PRIMITIVE} const load = lazy(() => import("../../shared/bar.js"));`).length, 0);
     assert.equal(
-      lint('import { lazy as defer } from "@curlewlabs-com/worker-lazy"; const load = defer(() => import("./bar.js"));')
+      lint(`${PRIMITIVE} const load = lazy(() => import("./bar.js"));`).length,
+      0,
+    );
+    assert.equal(
+      lint(`${PRIMITIVE} const load = lazy(() => import(\`./bar.js\`));`)
         .length,
+      0,
+    );
+    assert.equal(
+      lint(
+        `${PRIMITIVE} const load = lazy(() => import("../../shared/bar.js"));`,
+      ).length,
+      0,
+    );
+    assert.equal(
+      lint(
+        'import { lazy as defer } from "@curlewlabs-com/worker-lazy"; const load = defer(() => import("./bar.js"));',
+      ).length,
       0,
     );
   });
@@ -202,22 +231,35 @@ describe("dynamic-import-in-lazy-only", () => {
   // import() resolves to a namespace object, so a package entry becomes a chunk
   // entry point whose whole export surface is preserved.
   it("fires on a package specifier, naming it", () => {
-    for (const specifier of ["some-package", "@scope/pkg", "@scope/pkg/sub", "node:crypto"]) {
-      const m = only(lint(`${PRIMITIVE} const load = lazy(() => import("${specifier}"));`));
+    for (const specifier of [
+      "some-package",
+      "@scope/pkg",
+      "@scope/pkg/sub",
+      "node:crypto",
+    ]) {
+      const m = only(
+        lint(`${PRIMITIVE} const load = lazy(() => import("${specifier}"));`),
+      );
       assert.equal(m.messageId, "packageDynamicImport", specifier);
       assert.ok(m.message.includes(specifier));
     }
-    const templated = only(lint(`${PRIMITIVE} const load = lazy(() => import(\`@scope/pkg\`));`));
+    const templated = only(
+      lint(`${PRIMITIVE} const load = lazy(() => import(\`@scope/pkg\`));`),
+    );
     assert.equal(templated.messageId, "packageDynamicImport");
   });
 
   // The loader shape alone is not enough: the callee must resolve to the
   // primitive's own binding.
   it("fires when lazy is not the primitive", () => {
-    const other = lint('import { lazy } from "./other"; const load = lazy(() => import("./bar.js"));');
+    const other = lint(
+      'import { lazy } from "./other"; const load = lazy(() => import("./bar.js"));',
+    );
     assert.equal(ofRule(other, DYNAMIC).length, 1);
     const shadowed = only(
-      lint('function lazy(fn) { return fn(); } const load = lazy(() => import("./bar.js"));'),
+      lint(
+        'function lazy(fn) { return fn(); } const load = lazy(() => import("./bar.js"));',
+      ),
     );
     assert.equal(shadowed.ruleId, DYNAMIC);
   });
@@ -259,11 +301,16 @@ describe("non-async-dispatch-shell", () => {
   it("fires on an await in a shell declared above its export", () => {
     const code =
       "const handler = { fetch(req) { return withLazy(impl, async (mod) => await mod.handleFetch(req)); } };\nexport default handler;";
-    assert.ok(ofRule(lint(code), SHELL).some((x) => x.messageId === "awaitInDispatchShell"));
+    assert.ok(
+      ofRule(lint(code), SHELL).some(
+        (x) => x.messageId === "awaitInDispatchShell",
+      ),
+    );
   });
 
   it("leaves an object that is not the default export alone", () => {
-    const code = 'const other = { async fetch(req) { return await go(req); } }; export { other };';
+    const code =
+      "const other = { async fetch(req) { return await go(req); } }; export { other };";
     assert.equal(ofRule(lint(code), SHELL).length, 0);
   });
 
@@ -278,12 +325,18 @@ describe("non-async-dispatch-shell", () => {
   it("fires on an await anywhere inside a shell", () => {
     const code =
       "export default { fetch(req, env, ctx) { return withLazy(impl, async (mod) => await mod.handleFetch(req)); } };";
-    assert.ok(ofRule(lint(code), SHELL).some((x) => x.messageId === "awaitInDispatchShell"));
+    assert.ok(
+      ofRule(lint(code), SHELL).some(
+        (x) => x.messageId === "awaitInDispatchShell",
+      ),
+    );
   });
 
   it("treats Durable Object methods as shells", () => {
     const asyncMethod = ofRule(
-      lint("class G extends DurableObject { async tick(now) { return this.run(now); } }"),
+      lint(
+        "class G extends DurableObject { async tick(now) { return this.run(now); } }",
+      ),
       SHELL,
     );
     assert.equal(asyncMethod[0]?.messageId, "asyncDispatchShell");
@@ -299,7 +352,17 @@ describe("non-async-dispatch-shell", () => {
   });
 
   it("leaves async functions and non-Durable-Object classes alone", () => {
-    assert.equal(ofRule(lint("async function handleFetch(req) { return await doWork(req); }"), SHELL).length, 0);
-    assert.equal(ofRule(lint("class Foo { async bar() { return await x(); } }"), SHELL).length, 0);
+    assert.equal(
+      ofRule(
+        lint("async function handleFetch(req) { return await doWork(req); }"),
+        SHELL,
+      ).length,
+      0,
+    );
+    assert.equal(
+      ofRule(lint("class Foo { async bar() { return await x(); } }"), SHELL)
+        .length,
+      0,
+    );
   });
 });

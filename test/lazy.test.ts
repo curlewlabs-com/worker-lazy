@@ -28,7 +28,9 @@ function installTerminatorTrap(onTerminate: Terminator): () => void {
   };
 }
 
-function throwingTrap(onReason: (reason: string) => void = () => {}): () => void {
+function throwingTrap(
+  onReason: (reason: string) => void = () => {},
+): () => void {
   return installTerminatorTrap((reason) => {
     onReason(reason);
     throw new DeferredLoadTerminated(reason);
@@ -294,7 +296,10 @@ describe("attemptToCrashTheIsolate", () => {
       seen = reason;
     });
     try {
-      assert.throws(() => attemptToCrashTheIsolate("boom"), DeferredLoadTerminated);
+      assert.throws(
+        () => attemptToCrashTheIsolate("boom"),
+        DeferredLoadTerminated,
+      );
       assert.equal(seen, "boom");
     } finally {
       restore();

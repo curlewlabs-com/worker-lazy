@@ -86,7 +86,9 @@ function isPrimitiveLazyBinding(context, ident) {
  * @param {"importKind" | "exportKind"} kindKey
  */
 function allSpecifiersTypeOnly(specifiers, kindKey) {
-  return specifiers.length > 0 && specifiers.every((s) => s[kindKey] === "type");
+  return (
+    specifiers.length > 0 && specifiers.every((s) => s[kindKey] === "type")
+  );
 }
 
 /** @type {import('eslint').Rule.RuleModule} */
@@ -332,7 +334,8 @@ function unwrapTypeExpression(node) {
 function propertyKeyName(prop) {
   const key = prop.key;
   if (!prop.computed && key?.type === "Identifier") return key.name;
-  if (key?.type === "Literal" && typeof key.value === "string") return key.value;
+  if (key?.type === "Literal" && typeof key.value === "string")
+    return key.value;
   if (key?.type === "TemplateLiteral" && key.expressions.length === 0) {
     return key.quasis[0]?.value.cooked ?? null;
   }
