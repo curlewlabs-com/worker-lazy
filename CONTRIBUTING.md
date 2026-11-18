@@ -79,3 +79,10 @@ to pass, or a changed export or exported type.
    ```sh
    gh release edit v0.2.1 --notes-file notes.md --draft=false --latest
    ```
+
+## License
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this project by you, as defined in the Apache-2.0 license,
+shall be dual licensed under the MIT and Apache-2.0 licenses, as the README's
+License section describes, without any additional terms or conditions.
