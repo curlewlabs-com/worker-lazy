@@ -42,23 +42,27 @@ the last tag. A fix is a patch release. Until 1.0, a minor release is any
 change that can break a consumer's build: a rule that now reports code it used
 to pass, or a changed export or exported type.
 
+Each command below writes the new version as `X.Y.Z`; put the release's
+version in its place.
+
 1. In a pull request, set the version and the README's install URL. The URL
    names the tarball, and the tarball's name carries the version:
 
    ```sh
-   npm version 0.2.1 --no-git-tag-version
+   npm version X.Y.Z --no-git-tag-version
    ```
 
    That updates `package.json` and `package-lock.json`. Then edit the
    `npm install` line in the README by hand.
 
 2. Once it is merged, wait for the `CI` run on that `main` commit to pass
-   (its `conclusion` job), and the CodeQL `Analyze` jobs too, then tag that commit and push the
-   tag:
+   (its `conclusion` job), and the CodeQL `Analyze` jobs too, then tag that
+   commit and push the tag. The tag is annotated, with the tag name as its
+   message, as in the other Curlew Labs packages released this way:
 
    ```sh
-   git tag v0.2.1 <commit>
-   git push origin v0.2.1
+   git tag -a vX.Y.Z -m vX.Y.Z <commit>
+   git push origin vX.Y.Z
    ```
 
 3. The tag starts `release.yml`. It refuses a commit that is not on `main` or
@@ -71,12 +75,12 @@ to pass, or a changed export or exported type.
    integrity values must be equal:
 
    ```sh
-   git checkout v0.2.1
+   git switch --detach vX.Y.Z
    npm ci --ignore-scripts
    mkdir /tmp/check
    npm pack --pack-destination /tmp/check
    echo "sha512-$(openssl dgst -sha512 -binary /tmp/check/*.tgz | openssl base64 -A)"
-   gh release view v0.2.1 --json body -q .body
+   gh release view vX.Y.Z --json body -q .body
    ```
 
 5. Add the release notes below the draft's install block and integrity line.
@@ -86,7 +90,7 @@ to pass, or a changed export or exported type.
    publish:
 
    ```sh
-   gh release edit v0.2.1 --notes-file notes.md --draft=false --latest
+   gh release edit vX.Y.Z --notes-file notes.md --draft=false --latest
    ```
 
 ## License
