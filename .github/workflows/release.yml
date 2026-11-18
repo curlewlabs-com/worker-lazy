@@ -43,6 +43,9 @@ jobs:
         with:
           # renovate: datasource=node-version depName=node
           node-version: 24.22.2
+          # A release builds what it publishes from the lockfile alone, so no
+          # cache another run wrote can feed into it.
+          package-manager-cache: false
       - run: npm ci --ignore-scripts
       - name: Pack
         run: |
