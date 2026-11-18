@@ -25,6 +25,18 @@
 // read through `?.`, read-modify-written with `??=` - is reported. The safe set
 // is enumerated and everything outside it fails closed.
 //
+// An import is judged in the file that reads it. The exporting module's slot
+// is shared by every importer, and the read that adopts it is in the importing
+// file, where the exporting file's own lint cannot see it. A named or default
+// import is judged like a variable of the type it imports. A namespace import
+// is a set of such bindings, so `ns.x` is judged by the type of the export `x`
+// alone: calling `ns.start()` is not a read of `ns.ready`. Only handing on the
+// namespace whole, which hands on every export, is judged by all of them.
+// Uses that read nothing at run time pass however the binding was imported: a
+// type-only import (`import type`, `import { type T }`), and a type position
+// (`ns.Result` in an annotation), which typescript-eslint's scope analysis
+// records as a type reference rather than a value reference.
+//
 // Type-aware by design. Asking the checker rather than pattern-matching the
 // annotation is what catches a promise hidden behind a type alias, and what
 // lets `WeakMap<object, Promise<T>>` - a gate keyed on the request's own
@@ -140,6 +152,54 @@ function isInTypeQuery(identifier) {
   return node?.type === "TSTypeQuery";
 }
 
+// The references that can read the binding at run time. typescript-eslint
+// marks a reference in a type position (`let x: ns.Result`) as a type
+// reference only, which is also every reference a type-only import can have;
+// `typeof x` in a type position is recorded as a value reference, so the AST
+// decides that one.
+/** @param {any} variable */
+function runtimeReads(variable) {
+  return variable.references.filter(
+    (/** @type {any} */ reference) =>
+      // A plain `x = expr` is a write and nothing else; `x ??= expr` reads
+      // as well as writes, and what it reads back is the in-flight promise
+      // of whichever request got there first.
+      reference.isRead() &&
+      reference.isValueReference !== false &&
+      !isInTypeQuery(reference.identifier),
+  );
+}
+
+// The export a module object's reference names: `ns.x`, or `ns.x` in an
+// `import y = ns.x` alias. Undefined when the module object itself is used.
+/** @param {any} identifier */
+function exportNamed(identifier) {
+  const parent = identifier.parent;
+  if (
+    parent.type === "MemberExpression" &&
+    parent.object === identifier &&
+    !parent.computed
+  ) {
+    return parent.property.name;
+  }
+  if (parent.type === "TSQualifiedName" && parent.left === identifier) {
+    return parent.right.name;
+  }
+  return undefined;
+}
+
+// `import * as ns` and `import ns = require("...")` bind the module object;
+// every other import binds one export.
+/** @param {any} definition an ImportBinding definition */
+function bindsModuleObject(definition) {
+  const node = definition.node;
+  if (node.type === "ImportNamespaceSpecifier") return true;
+  return (
+    node.type === "TSImportEqualsDeclaration" &&
+    node.moduleReference.type === "TSExternalModuleReference"
+  );
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
 const noModuleScopePromiseAdoption = {
   meta: {
@@ -171,27 +231,71 @@ const noModuleScopePromiseAdoption = {
     }
     const checker = services.program.getTypeChecker();
 
-    /** @param {any} variable */
-    function checkVariable(variable) {
-      const definition = variable.defs[0];
-      if (definition === undefined) return;
-      const tsNode = services.esTreeNodeToTSNodeMap.get(definition.name);
-      if (tsNode === undefined) return;
+    /**
+     * @param {any} node the read
+     * @param {string} name
+     */
+    function reportUnlessSafe(node, name) {
+      if (isNonValueRead(node)) return;
+      context.report({ node, messageId: "promiseAdoption", data: { name } });
+    }
+
+    /**
+     * @param {any} variable
+     * @param {any} tsNode its declaration's name
+     */
+    function checkBinding(variable, tsNode) {
       if (!holdsPromise(checker, checker.getTypeAtLocation(tsNode), tsNode)) {
         return;
       }
-      for (const reference of variable.references) {
-        // A plain `x = expr` is a write and nothing else; `x ??= expr` reads
-        // as well as writes, and what it reads back is the in-flight promise
-        // of whichever request got there first.
-        if (!reference.isRead()) continue;
-        if (isInTypeQuery(reference.identifier)) continue;
-        if (isNonValueRead(reference.identifier)) continue;
-        context.report({
-          node: reference.identifier,
-          messageId: "promiseAdoption",
-          data: { name: variable.name },
-        });
+      for (const reference of runtimeReads(variable)) {
+        reportUnlessSafe(reference.identifier, variable.name);
+      }
+    }
+
+    /**
+     * @param {any} variable
+     * @param {any} tsNode its declaration's name
+     */
+    function checkModuleObject(variable, tsNode) {
+      const moduleType = checker.getTypeAtLocation(tsNode);
+      /** @param {any} exported */
+      const exportHoldsPromise = (exported) =>
+        holdsPromise(
+          checker,
+          checker.getTypeOfSymbolAtLocation(exported, tsNode),
+          tsNode,
+        );
+      /** @type {boolean | undefined} */
+      let anyExportHoldsPromise;
+      for (const reference of runtimeReads(variable)) {
+        const identifier = reference.identifier;
+        const name = exportNamed(identifier);
+        if (name !== undefined) {
+          const exported = checker.getPropertyOfType(moduleType, name);
+          if (exported === undefined || !exportHoldsPromise(exported)) continue;
+          reportUnlessSafe(identifier.parent, `${variable.name}.${name}`);
+          continue;
+        }
+        anyExportHoldsPromise ??= checker
+          .getPropertiesOfType(moduleType)
+          .some(exportHoldsPromise);
+        if (anyExportHoldsPromise) reportUnlessSafe(identifier, variable.name);
+      }
+    }
+
+    /** @param {any} variable */
+    function checkVariable(variable) {
+      const definition = variable.defs[0];
+      const tsNode = services.esTreeNodeToTSNodeMap.get(definition.name);
+      if (tsNode === undefined) return;
+      if (
+        definition.type === "ImportBinding" &&
+        bindsModuleObject(definition)
+      ) {
+        checkModuleObject(variable, tsNode);
+      } else {
+        checkBinding(variable, tsNode);
       }
     }
 
@@ -201,7 +305,8 @@ const noModuleScopePromiseAdoption = {
         // The variables that live as long as the module are the module
         // scope's (the global scope's, in a script), whatever statement
         // declares them: a `var` nested in a top-level block is hoisted there
-        // too. Imports are not judged here; the README lists that limit.
+        // too. Imports are bound there as well, and judged as the header
+        // says. A function or class declared here is not a slot.
         const globalScope = sourceCode.getScope(node);
         const moduleScope =
           globalScope.childScopes.find(
@@ -209,7 +314,7 @@ const noModuleScopePromiseAdoption = {
           ) ?? globalScope;
         for (const variable of moduleScope.variables) {
           const kind = variable.defs[0]?.type;
-          if (kind !== "Variable") continue;
+          if (kind !== "Variable" && kind !== "ImportBinding") continue;
           checkVariable(variable);
         }
       },

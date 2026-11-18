@@ -218,14 +218,22 @@ TypeScript sources need a parser that reports `import type`, such as
   `export { handler as default }`). Put the awaited work in the module the
   shell loads, and scope this rule to the shell files.
 
-- **`no-module-scope-promise-adoption`** - a module-scope variable whose type
-  holds a promise (a `Promise` or any value with a callable
+- **`no-module-scope-promise-adoption`** - a module-scope variable or import
+  whose type holds a promise (a `Promise` or any value with a callable
   `then`, possibly optional or behind a type alias, or an object with such a
   property) may be assigned, truthiness-tested (`if (x)`, `!x`), compared with
   `null` or `undefined`, and `typeof`-ed. Every other read is an error: returning it, awaiting it,
   calling `.then` on it, copying it to a local, passing it on, reading through
   it with `?.`, or `x ??= ...`. Each of those can hand one request's promise to
   another.
+
+  An import is checked in the file that reads it, since every importer shares
+  the exporting module's binding. Through a namespace import (`import * as
+ns`), each export is its own binding: `ns.ready` is checked when `ready`
+  holds a promise, `ns.start()` is not, and passing `ns` itself on counts as
+  reading every export. A type position reads nothing at run time, so a
+  type-only import, an annotation naming a type through a namespace
+  (`ns.Result`), and `typeof x` in a type all pass.
 
   ```ts
   let refreshing: Promise<string> | null = null;
@@ -281,11 +289,9 @@ TypeScript sources need a parser that reports `import type`, such as
   `email`, `tail`) are not checked, and neither is a default export the rule
   cannot trace to an object literal in the same file (a function's result, an
   imported object, a spread's members).
-- `no-module-scope-promise-adoption` looks only at variables declared at
-  module scope in the file it lints. A promise imported from another module is
-  not checked: `shared.pending ??= load()` on an imported `shared` passes. It
-  also leaves two shapes alone because their lifetime is not in
-  the source. A promise-typed variable inside a factory function, such as a
+- `no-module-scope-promise-adoption` looks at module-scope variables and
+  imports, and leaves two shapes alone because their lifetime is not in the
+  source. A promise-typed variable inside a factory function, such as a
   memoizer the factory returns, is the hazard when the factory is called at
   module scope and correct when it is called per request; where it is called
   is outside the file. And a keyed container such as
