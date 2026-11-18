@@ -58,8 +58,6 @@ jobs:
           )
           node scripts/check-runtime-bundle.ts "$consumer"
 
-  # The one check branch protection requires, so adding a job means listing it
-  # here rather than in the repository settings.
   baseline:
     # The checks every Curlew Labs repository runs, in one place:
     # https://github.com/curlewlabs-com/ci-baseline
@@ -72,6 +70,8 @@ jobs:
       - uses: curlewlabs-com/ci-baseline@f05f17a38ba2dfbaf0cde130a375b346e9a923a2 # v0.2.0
 
   conclusion:
+    # The one check branch protection requires, so adding a job means listing it
+    # here rather than in the repository settings.
     needs: [test, baseline]
     runs-on: ubuntu-24.04
     if: always()
