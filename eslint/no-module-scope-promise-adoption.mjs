@@ -198,13 +198,10 @@ const noModuleScopePromiseAdoption = {
     return {
       /** @param {any} node */
       "Program:exit"(node) {
-        // The bindings that live as long as the module are the module scope's
-        // (the global scope's, in a script), whatever statement declares them:
-        // a `var` nested in a top-level block is hoisted there too. An import
-        // is one as well, since the exporting module's slot is shared by
-        // every importer, and its reads happen in the importing file.
-        // Function and class names are not slots; type-only names read
-        // nothing at run time.
+        // The variables that live as long as the module are the module
+        // scope's (the global scope's, in a script), whatever statement
+        // declares them: a `var` nested in a top-level block is hoisted there
+        // too. Imports are not judged here; the README lists that limit.
         const globalScope = sourceCode.getScope(node);
         const moduleScope =
           globalScope.childScopes.find(
@@ -212,8 +209,7 @@ const noModuleScopePromiseAdoption = {
           ) ?? globalScope;
         for (const variable of moduleScope.variables) {
           const kind = variable.defs[0]?.type;
-          if (kind !== "Variable" && kind !== "ImportBinding") continue;
-          if (/** @type {any} */ (variable).isValueVariable === false) continue;
+          if (kind !== "Variable") continue;
           checkVariable(variable);
         }
       },

@@ -57,22 +57,13 @@ const eslint = new ESLint({
   ],
 });
 
-// Modules the import cases import from. They are linted by no case, and they
-// are written before any case for the reason lintCase gives.
+// The module the import case imports from. No case lints it, and it is written
+// before any case for the reason lintCase gives.
 writeFileSync(
   join(FIXTURE_DIR, "shared.ts"),
   `
 export type Shared = { pending?: Promise<number> };
 export const shared: Shared = {};
-export function start(): void {}
-`,
-);
-writeFileSync(
-  join(FIXTURE_DIR, "helpers.ts"),
-  `
-export function twice(n: number): number {
-  return n * 2;
-}
 `,
 );
 
@@ -276,21 +267,6 @@ export function load(): Promise<number> {
     },
   );
 
-  // The exporting module's slot is shared by every importer, and the read
-  // that adopts it is in the importing file, so imports are checked there.
-  lintCase(
-    "reading an imported promise slot fires",
-    `
-import { shared } from "./shared";
-export function load(): Promise<number> {
-  return (shared.pending ??= Promise.resolve(1));
-}
-`,
-    (m) => {
-      assert.equal(m.length, 1);
-    },
-  );
-
   // A module-scope `const` promise is the hazard with no window at all: every
   // request after the first adopts it.
   lintCase(
@@ -388,22 +364,6 @@ export function get(): string {
     },
   );
 
-  // Imports holding no promise, and type-only imports, are not slots.
-  lintCase(
-    "imported functions, namespaces and types pass",
-    `
-import { start, type Shared } from "./shared";
-import * as helpers from "./helpers";
-export function run(): Shared | number {
-  start();
-  return helpers.twice(1);
-}
-`,
-    (m) => {
-      assert.equal(m.length, 0);
-    },
-  );
-
   // `typeof x` in a type position is erased at build, so it reads nothing at
   // run time, plain or qualified.
   lintCase(
@@ -433,6 +393,23 @@ describe("no-module-scope-promise-adoption: the documented gaps, pinned as passi
 export function memo(): () => Promise<number> {
   let pending: Promise<number> | undefined;
   return () => (pending ??= Promise.resolve(1));
+}
+`,
+    (m) => {
+      assert.equal(m.length, 0);
+    },
+  );
+
+  // The exporting module's slot is shared by every importer, and the read
+  // that adopts it is in the importing file. Imports are not judged: telling a
+  // value read through one from a type-only use is a further question the
+  // rule does not take on, and a false report is worse than a stated limit.
+  lintCase(
+    "an imported promise slot is out of scope",
+    `
+import { shared } from "./shared";
+export function load(): Promise<number> {
+  return (shared.pending ??= Promise.resolve(1));
 }
 `,
     (m) => {
