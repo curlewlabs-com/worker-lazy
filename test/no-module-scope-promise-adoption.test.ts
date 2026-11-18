@@ -63,7 +63,9 @@ writeFileSync(
   join(FIXTURE_DIR, "shared.ts"),
   `
 export type Shared = { pending?: Promise<number> };
+export type Result = number;
 export const shared: Shared = {};
+export const ready: Promise<number> = Promise.resolve(1);
 export function start(): void {}
 `,
 );
@@ -398,6 +400,21 @@ export function run(): Shared | number {
   start();
   return helpers.twice(1);
 }
+`,
+    (m) => {
+      assert.equal(m.length, 0);
+    },
+  );
+
+  // A namespace import of a module that exports a promise holds that promise
+  // as a property, but naming one of its types reads nothing at run time.
+  lintCase(
+    "a namespace import used only in types passes",
+    `
+import type * as SharedTypes from "./shared";
+import * as sharedValues from "./shared";
+export type Out = SharedTypes.Result | sharedValues.Result;
+export const n: SharedTypes.Result = 1;
 `,
     (m) => {
       assert.equal(m.length, 0);
