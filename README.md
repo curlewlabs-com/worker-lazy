@@ -61,7 +61,7 @@ This package is not published to the npm registry. Install it from a GitHub
 release's tarball URL, which your lockfile pins by its integrity hash:
 
 ```sh
-npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.2.0/curlewlabs-com-worker-lazy-0.2.0.tgz
+npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.2.1/curlewlabs-com-worker-lazy-0.2.1.tgz
 ```
 
 Each release's notes give its tarball's SHA-512 integrity, and the tarball has
@@ -179,7 +179,7 @@ TypeScript sources need a parser that reports `import type`, such as
   `@curlewlabs-com/worker-lazy` itself. `import type`
   and `export type` are erased at build and always allowed. An import or
   re-export whose specifiers are each marked `type` (`import { type A } from
-  "./x"`) is not: under `verbatimModuleSyntax` it is kept as
+"./x"`) is not: under `verbatimModuleSyntax` it is kept as
   `import {} from "./x"` and still loads `./x`, so the rule asks for the
   declaration-level form. A static edge the
   runtime genuinely needs before any handler runs - a Durable Object class it
