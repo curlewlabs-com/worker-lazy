@@ -57,6 +57,25 @@ const eslint = new ESLint({
   ],
 });
 
+// Modules the import cases import from. They are linted by no case, and they
+// are written before any case for the reason lintCase gives.
+writeFileSync(
+  join(FIXTURE_DIR, "shared.ts"),
+  `
+export type Shared = { pending?: Promise<number> };
+export const shared: Shared = {};
+export function start(): void {}
+`,
+);
+writeFileSync(
+  join(FIXTURE_DIR, "helpers.ts"),
+  `
+export function twice(n: number): number {
+  return n * 2;
+}
+`,
+);
+
 let fixtureN = 0;
 
 // Registers one case. The fixture is written HERE, while the module is being
@@ -240,6 +259,38 @@ export function get(): typeof ready {
     },
   );
 
+  // `var` is hoisted to module scope from inside a top-level block, so the
+  // slot lives as long as the module whatever statement declares it.
+  lintCase(
+    "a var declared in a top-level block fires",
+    `
+if (Math.random() > 2) {
+  var pending: Promise<number> | undefined;
+}
+export function load(): Promise<number> {
+  return (pending ??= Promise.resolve(1));
+}
+`,
+    (m) => {
+      assert.equal(m.length, 1);
+    },
+  );
+
+  // The exporting module's slot is shared by every importer, and the read
+  // that adopts it is in the importing file, so imports are checked there.
+  lintCase(
+    "reading an imported promise slot fires",
+    `
+import { shared } from "./shared";
+export function load(): Promise<number> {
+  return (shared.pending ??= Promise.resolve(1));
+}
+`,
+    (m) => {
+      assert.equal(m.length, 1);
+    },
+  );
+
   // A module-scope `const` promise is the hazard with no window at all: every
   // request after the first adopts it.
   lintCase(
@@ -330,6 +381,22 @@ describe("no-module-scope-promise-adoption: what is not a promise or not a read"
 const cached = { then: "later", token: "t" };
 export function get(): string {
   return cached.token;
+}
+`,
+    (m) => {
+      assert.equal(m.length, 0);
+    },
+  );
+
+  // Imports holding no promise, and type-only imports, are not slots.
+  lintCase(
+    "imported functions, namespaces and types pass",
+    `
+import { start, type Shared } from "./shared";
+import * as helpers from "./helpers";
+export function run(): Shared | number {
+  start();
+  return helpers.twice(1);
 }
 `,
     (m) => {

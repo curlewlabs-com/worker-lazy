@@ -218,11 +218,11 @@ TypeScript sources need a parser that reports `import type`, such as
   `export { handler as default }`). Put the awaited work in the module the
   shell loads, and scope this rule to the shell files.
 
-- **`no-module-scope-promise-adoption`** - a variable declared at module scope
-  whose type holds a promise (a `Promise`, any thenable, a type alias of one,
-  or an object with a promise-typed property) may be assigned,
-  truthiness-tested (`if (x)`, `!x`), compared with `null` or `undefined`, and
-  `typeof`-ed. Every other read is an error: returning it, awaiting it,
+- **`no-module-scope-promise-adoption`** - a module-scope variable or an
+  import whose type holds a promise (a `Promise` or any value with a callable
+  `then`, possibly optional or behind a type alias, or an object with such a
+  property) may be assigned, truthiness-tested (`if (x)`, `!x`), compared with
+  `null` or `undefined`, and `typeof`-ed. Every other read is an error: returning it, awaiting it,
   calling `.then` on it, copying it to a local, passing it on, reading through
   it with `?.`, or `x ??= ...`. Each of those can hand one request's promise to
   another.
@@ -281,8 +281,8 @@ TypeScript sources need a parser that reports `import type`, such as
   `email`, `tail`) are not checked, and neither is a default export the rule
   cannot trace to an object literal in the same file (a function's result, an
   imported object, a spread's members).
-- `no-module-scope-promise-adoption` looks only at variables declared at
-  module scope, and leaves two shapes alone because their lifetime is not in
+- `no-module-scope-promise-adoption` looks only at module-scope variables
+  and imports, and leaves two shapes alone because their lifetime is not in
   the source. A promise-typed variable inside a factory function, such as a
   memoizer the factory returns, is the hazard when the factory is called at
   module scope and correct when it is called per request; where it is called
