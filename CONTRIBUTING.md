@@ -14,6 +14,15 @@ in-flight promise, so no request awaits a promise another request created, and
 a failed load logs one line and ends the isolate rather than handing back a
 rejection. A short discussion up front saves rework.
 
+## Dependencies
+
+Every development dependency is pinned to one exact version, and Renovate moves
+the pins. `package.json`'s `overrides` holds `minimatch` at a release past
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249),
+because the pinned `eslint` and `typescript-eslint` still ask for the 10.x
+line. Remove the override once both ask for 11.0.1 or later, so it cannot hold
+`minimatch` below what a later release of either needs.
+
 ## Releasing
 
 A patch or minor release needs no approval: whoever cuts it follows the steps
