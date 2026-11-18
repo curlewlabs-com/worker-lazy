@@ -16,8 +16,14 @@
 // the entry and Durable Object shell files only, so the modules they load, which
 // legitimately await inside already-async I/O handlers, never trip it.
 //
+// The package's fourth rule, no-module-scope-promise-adoption, is about the
+// promises requests share rather than module loading, so it lives in its own
+// module and is only registered here.
+//
 // This file is the package's lint entry only. The runtime entry never imports
 // it, so a Worker that bundles lazy() bundles none of this.
+
+import noModuleScopePromiseAdoption from "./no-module-scope-promise-adoption.mjs";
 
 const STATIC_EDGE_DIRECTIVE_MARKER = "deferred-loading static-edge";
 const STATIC_EDGE_DIRECTIVE =
@@ -500,6 +506,7 @@ const rules = {
   "no-static-value-import": noStaticValueImport,
   "dynamic-import-in-lazy-only": dynamicImportInLazyOnly,
   "non-async-dispatch-shell": nonAsyncDispatchShell,
+  "no-module-scope-promise-adoption": noModuleScopePromiseAdoption,
 };
 
 export default { rules };

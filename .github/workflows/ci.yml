@@ -53,7 +53,7 @@ jobs:
               const load = lazy(() => Promise.resolve({ v: 1 }), { partition: "p", operation: "o" });
               if ((await withLazy(load, (m) => m.v)) !== 1) throw new Error("cold path");
               if (withLazy(load, (m) => m.v) !== 1) throw new Error("warm path was not synchronous");
-              if (Object.keys(plugin.rules).length !== 3) throw new Error("lint entry");
+              if (Object.keys(plugin.rules).length !== 4) throw new Error("lint entry");
             '
           )
           node scripts/check-runtime-bundle.ts "$consumer"

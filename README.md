@@ -17,7 +17,9 @@ One package with two entries that never meet:
   make deferral the default: a static import has to defer through `lazy()` or
   say why it cannot, a dynamic `import()` is allowed only as a `lazy()` loader,
   and the Worker's entry handlers stay synchronous so the loaded path adds no
-  microtask. A Worker that imports the primitive bundles none of the lint.
+  microtask. A fourth rule keeps a request from awaiting a promise that
+  another request created. A Worker that imports the primitive bundles none of
+  the lint.
 
 ## Why it exists
 
@@ -42,7 +44,10 @@ one load - is wrong on Workers. A promise belongs to the request that created
 it; a second request that awaits it has no pending work of its own, and the
 runtime cancels that request as hung. `lazy()` gives every cold caller its own
 promise. The registry still evaluates the module once, so this costs one extra
-promise, never a second evaluation.
+promise, never a second evaluation. The same optimization is just as tempting
+anywhere else a Worker loads or refreshes something - a token, a key, a
+config - and fails the same way, on some later request rather than the one
+that introduced it, so one of the rules looks for its module-scope form.
 
 **A failed load must not degrade quietly.** The deferred chunks ship inside
 the deployed bundle, so a load that fails means the deploy is broken - a chunk
@@ -61,7 +66,7 @@ This package is not published to the npm registry. Install it from a GitHub
 release's tarball URL, which your lockfile pins by its integrity hash:
 
 ```sh
-npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.2.1/curlewlabs-com-worker-lazy-0.2.1.tgz
+npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.3.0/curlewlabs-com-worker-lazy-0.3.0.tgz
 ```
 
 Each release's notes give its tarball's SHA-512 integrity, and the tarball has
@@ -213,6 +218,59 @@ TypeScript sources need a parser that reports `import type`, such as
   `export { handler as default }`). Put the awaited work in the module the
   shell loads, and scope this rule to the shell files.
 
+- **`no-module-scope-promise-adoption`** - a module-scope variable whose type
+  holds a promise (a `Promise` or any value with a callable
+  `then`, possibly optional or behind a type alias, or an object with such a
+  property) may be assigned, truthiness-tested (`if (x)`, `!x`), compared with
+  `null` or `undefined`, and `typeof`-ed. Every other read is an error: returning it, awaiting it,
+  calling `.then` on it, copying it to a local, passing it on, reading through
+  it with `?.`, or `x ??= ...`. Each of those can hand one request's promise to
+  another.
+
+  ```ts
+  let refreshing: Promise<string> | null = null;
+
+  export async function token(): Promise<string> {
+    if (refreshing) return refreshing; // error: another request's promise
+    // ...
+  }
+  ```
+
+  Cache the resolved value instead, or keep the promise in a
+  `WeakMap<object, Promise<T>>` keyed on an object that belongs to one
+  request, which only callers within that request can reach. A module-scope
+  promise used only as a marker ("a refresh is already running"), tested but
+  never awaited by anyone but its creator, passes. A creator that needs to
+  return its own promise keeps a local reference to it.
+
+  The rule asks the TypeScript checker for each variable's type, so it needs
+  type information, and it throws rather than passing everything when the
+  parser was given none:
+
+  ```js
+  // eslint.config.mjs
+  import tseslint from "typescript-eslint";
+  import workerLazy from "@curlewlabs-com/worker-lazy/eslint";
+
+  export default [
+    {
+      files: ["src/**/*.ts"],
+      languageOptions: {
+        parser: tseslint.parser,
+        parserOptions: {
+          projectService: true,
+          tsconfigRootDir: import.meta.dirname,
+        },
+      },
+      plugins: { "worker-lazy": workerLazy },
+      rules: { "worker-lazy/no-module-scope-promise-adoption": "error" },
+    },
+  ];
+  ```
+
+  No rule is on unless your config names it, so this rule changes nothing for
+  a config that lists only the other three.
+
 ## Limits
 
 - The rules recognize the primitive only by the exact specifier
@@ -223,6 +281,17 @@ TypeScript sources need a parser that reports `import type`, such as
   `email`, `tail`) are not checked, and neither is a default export the rule
   cannot trace to an object literal in the same file (a function's result, an
   imported object, a spread's members).
+- `no-module-scope-promise-adoption` looks only at variables declared at
+  module scope in the file it lints. A promise imported from another module is
+  not checked: `shared.pending ??= load()` on an imported `shared` passes. It
+  also leaves two shapes alone because their lifetime is not in
+  the source. A promise-typed variable inside a factory function, such as a
+  memoizer the factory returns, is the hazard when the factory is called at
+  module scope and correct when it is called per request; where it is called
+  is outside the file. And a keyed container such as
+  `Map<string, Promise<T>>` at module scope is the hazard in container form,
+  but its type is indistinguishable from the request-keyed `WeakMap` above:
+  both expose only methods. Review those two by hand.
 - The rules see source text, not the bundle. Whether a module is in the
   startup graph is the bundler's answer: an esbuild metafile's static
   `import-statement` edges from the entry output give the exact set, which is
