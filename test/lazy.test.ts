@@ -249,6 +249,7 @@ describe("lazy", () => {
     try {
       const { proxy, revoke } = Proxy.revocable({}, {});
       revoke();
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- a reason that cannot be inspected is what this test covers
       const load = lazy(() => Promise.reject(proxy), TEST_CONTEXT);
 
       await assert.rejects(load() as Promise<unknown>, DeferredLoadTerminated);
