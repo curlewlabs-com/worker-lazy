@@ -154,8 +154,8 @@ export async function get(): Promise<number> {
       assert.equal(m.length, 1);
       assert.equal(m[0]?.ruleId, RULE);
       // 2 is error: a warning would let the shape ship.
-      assert.equal(m[0]?.severity, 2);
-      assert.match(m[0]?.message ?? "", /inflight/);
+      assert.equal(m[0].severity, 2);
+      assert.match(m[0].message, /inflight/);
     },
   );
 

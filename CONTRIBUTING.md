@@ -23,6 +23,14 @@ because the pinned `eslint` and `typescript-eslint` still ask for the 10.x
 line. Remove the override once both ask for 11.0.1 or later, so it cannot hold
 `minimatch` below what a later release of either needs.
 
+## Checks
+
+CI runs `npm ci --ignore-scripts`, then `npm run typecheck` and `npm test`.
+
+eslint runs in CI through ci-baseline. To run the same check locally, after
+installing dependencies: `<a ci-baseline checkout>/lib/lint-local.sh`. It runs
+the ci-baseline commit this repository's workflows pin.
+
 ## Releasing
 
 A patch or minor release needs no approval: whoever cuts it follows the steps
