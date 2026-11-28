@@ -161,7 +161,9 @@ try {
 ```
 
 Here `load` is a `lazy()` accessor with a rejecting loader. The trap survives
-module reloads. To inspect the termination reason before throwing, pass a
+module reloads. For assertions after a reload, keep the
+`DeferredLoadTerminated` constructor from the module instance that installed
+the trap. To inspect the termination reason before throwing, pass a
 throwing callback to `installTerminatorTrap`. Tests that need distinct
 callbacks in the same JavaScript realm must run serially because they share
 one active trap.

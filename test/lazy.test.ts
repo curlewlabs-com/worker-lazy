@@ -312,37 +312,55 @@ describe("attemptToCrashTheIsolate", () => {
     );
   });
 
-  it("keeps a newer trap active when an older registration restores first", () => {
-    const suiteError = new Error("suite trap");
-    const newerError = new Error("newer trap");
-    const restoreSuite = installTerminatorTrap(() => {
-      throw suiteError;
-    });
-    const restoreOlder = installTerminatorTrap();
-    const restoreNewer = installTerminatorTrap(() => {
-      throw newerError;
-    });
-    const slot = globalThis as TerminatorTrapSlot;
+  it("restores the legacy trap after out-of-order cleanup across a reload", async () => {
+    // A different URL re-evaluates the testing entry in this same realm.
+    const testingUrl = new URL("../src/testing.ts", import.meta.url);
+    testingUrl.search = "reload";
+    const { installTerminatorTrap: installAfterReload } = (await import(
+      testingUrl.href
+    )) as typeof import("../src/testing.ts");
+
+    // Use the published legacy spelling independently of the package constant.
+    const slot = globalThis as {
+      __deferredLoadTerminatorForTest?: ((reason: string) => never) | undefined;
+    };
+    const previous = slot.__deferredLoadTerminatorForTest;
+    const legacyError = new Error("legacy trap");
+    const legacyTrap = () => {
+      throw legacyError;
+    };
+    const sharedError = new Error("shared callback");
+    const sharedCallback = () => {
+      throw sharedError;
+    };
+    slot.__deferredLoadTerminatorForTest = legacyTrap;
+
+    const restoreOlder = installTerminatorTrap(sharedCallback);
+    const older = slot.__deferredLoadTerminatorForTest;
+    const restoreNewer = installAfterReload(sharedCallback);
+    const newer = slot.__deferredLoadTerminatorForTest;
 
     try {
+      assert.notEqual(older, legacyTrap);
+      assert.ok(newer);
+      assert.notEqual(newer, older);
       restoreOlder();
-      assert.ok(slot[TERMINATOR_TRAP_KEY]);
+      assert.equal(slot.__deferredLoadTerminatorForTest, newer);
       assert.throws(
         () => attemptToCrashTheIsolate("older restored"),
-        (error) => error === newerError,
+        (error) => error === sharedError,
       );
 
-      // The newer trap must skip the expired predecessor and restore suite setup.
       restoreNewer();
-      assert.ok(slot[TERMINATOR_TRAP_KEY]);
+      assert.equal(slot.__deferredLoadTerminatorForTest, legacyTrap);
       assert.throws(
         () => attemptToCrashTheIsolate("newer restored"),
-        (error) => error === suiteError,
+        (error) => error === legacyError,
       );
     } finally {
       restoreNewer();
       restoreOlder();
-      restoreSuite();
+      slot.__deferredLoadTerminatorForTest = previous;
     }
   });
 });
