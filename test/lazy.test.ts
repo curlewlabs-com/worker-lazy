@@ -311,6 +311,40 @@ describe("attemptToCrashTheIsolate", () => {
       (error) => error === previousError,
     );
   });
+
+  it("keeps a newer trap active when an older registration restores first", () => {
+    const suiteError = new Error("suite trap");
+    const newerError = new Error("newer trap");
+    const restoreSuite = installTerminatorTrap(() => {
+      throw suiteError;
+    });
+    const restoreOlder = installTerminatorTrap();
+    const restoreNewer = installTerminatorTrap(() => {
+      throw newerError;
+    });
+    const slot = globalThis as TerminatorTrapSlot;
+
+    try {
+      restoreOlder();
+      assert.ok(slot[TERMINATOR_TRAP_KEY]);
+      assert.throws(
+        () => attemptToCrashTheIsolate("older restored"),
+        (error) => error === newerError,
+      );
+
+      // The newer trap must skip the expired predecessor and restore suite setup.
+      restoreNewer();
+      assert.ok(slot[TERMINATOR_TRAP_KEY]);
+      assert.throws(
+        () => attemptToCrashTheIsolate("newer restored"),
+        (error) => error === suiteError,
+      );
+    } finally {
+      restoreNewer();
+      restoreOlder();
+      restoreSuite();
+    }
+  });
 });
 
 describe("withLazy", () => {

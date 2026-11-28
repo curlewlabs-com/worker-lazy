@@ -5,6 +5,15 @@ import {
   type TerminatorTrapSlot,
 } from "./terminator-trap.ts";
 
+// Restore callbacks from either side of a module reload share the same
+// retired wrappers, just as the runtime shares the active trap slot.
+const RETIRED_TRAPS_KEY = Symbol.for(
+  "@curlewlabs-com/worker-lazy/retired-traps",
+);
+type TestingSlot = TerminatorTrapSlot & {
+  [RETIRED_TRAPS_KEY]?: WeakMap<TerminatorTrap, TerminatorTrap | undefined>;
+};
+
 export class DeferredLoadTerminated extends Error {
   constructor(reason: string) {
     super(`deferred-load isolate termination (test trap): ${reason}`);
@@ -17,10 +26,25 @@ export function installTerminatorTrap(
     throw new DeferredLoadTerminated(reason);
   },
 ): () => void {
-  const slot = globalThis as TerminatorTrapSlot;
+  const slot = globalThis as TestingSlot;
+  const retired =
+    slot[RETIRED_TRAPS_KEY] ??
+    new WeakMap<TerminatorTrap, TerminatorTrap | undefined>();
+  slot[RETIRED_TRAPS_KEY] = retired;
   const previous = slot[TERMINATOR_TRAP_KEY];
-  slot[TERMINATOR_TRAP_KEY] = onTerminate;
+  // Each registration needs its own identity even if the callback is reused.
+  const trap: TerminatorTrap = (reason) => onTerminate(reason);
+  slot[TERMINATOR_TRAP_KEY] = trap;
+
   return () => {
-    slot[TERMINATOR_TRAP_KEY] = previous;
+    if (retired.has(trap)) return;
+    retired.set(trap, previous);
+    if (slot[TERMINATOR_TRAP_KEY] !== trap) return;
+
+    let next = previous;
+    while (next !== undefined && retired.has(next)) {
+      next = retired.get(next);
+    }
+    slot[TERMINATOR_TRAP_KEY] = next;
   };
 }

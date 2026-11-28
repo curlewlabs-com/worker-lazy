@@ -72,6 +72,9 @@ release's tarball URL, which your lockfile pins by its integrity hash:
 npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.4.0/curlewlabs-com-worker-lazy-0.4.0.tgz
 ```
 
+The exported diagnostic markers and the `/testing` entry require v0.5.0 or
+newer.
+
 Each release's notes give its tarball's SHA-512 integrity, and the tarball has
 a GitHub build provenance attestation
 (`gh attestation verify <file> -R curlewlabs-com/worker-lazy`).
@@ -159,7 +162,9 @@ try {
 
 Here `load` is a `lazy()` accessor with a rejecting loader. The trap survives
 module reloads. To inspect the termination reason before throwing, pass a
-throwing callback to `installTerminatorTrap`.
+throwing callback to `installTerminatorTrap`. Tests that need distinct
+callbacks in the same JavaScript realm must run serially because they share
+one active trap.
 
 ### The lint rules
 
