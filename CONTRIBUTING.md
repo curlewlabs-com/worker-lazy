@@ -53,15 +53,11 @@ to pass, or a changed export or exported type.
 Each command below writes the new version as `X.Y.Z`; put the release's
 version in its place.
 
-1. In a pull request, set the version and the README's install URL. The URL
-   names the tarball, and the tarball's name carries the version:
+1. In a pull request, set the version in `package.json` and `package-lock.json`:
 
    ```sh
    npm version X.Y.Z --no-git-tag-version
    ```
-
-   That updates `package.json` and `package-lock.json`. Then edit the
-   `npm install` line in the README by hand.
 
 2. Once it is merged, wait for the `CI` run on that `main` commit to pass
    (its `conclusion` job), and the CodeQL `Analyze` jobs too, then tag that
