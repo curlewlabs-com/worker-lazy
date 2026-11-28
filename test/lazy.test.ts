@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { attemptToCrashTheIsolate, lazy, withLazy } from "../src/lazy.ts";
+import {
+  attemptToCrashTheIsolate,
+  lazy,
+  LOAD_FAILURE_MARKER,
+  withLazy,
+} from "../src/lazy.ts";
+import {
+  TERMINATOR_TRAP_KEY,
+  type TerminatorTrapSlot,
+} from "../src/terminator-trap.ts";
+import {
+  DeferredLoadTerminated,
+  installTerminatorTrap,
+} from "../src/testing.ts";
 
 // These tests pin the contract the primitive exists for: the warm path is a plain
 // synchronous value (no per-call microtask), each concurrent cold caller gets its
@@ -10,27 +23,7 @@ import { attemptToCrashTheIsolate, lazy, withLazy } from "../src/lazy.ts";
 // recover from. Every failure test installs a throwing terminator trap so
 // termination is observable without exhausting the test process.
 
-class DeferredLoadTerminated extends Error {
-  constructor(reason: string) {
-    super(`deferred load terminated: ${reason}`);
-  }
-}
-
-type Terminator = (reason: string) => never;
-type TrapSlot = { __deferredLoadTerminatorForTest?: Terminator | undefined };
-
-function installTerminatorTrap(onTerminate: Terminator): () => void {
-  const slot = globalThis as TrapSlot;
-  const previous = slot.__deferredLoadTerminatorForTest;
-  slot.__deferredLoadTerminatorForTest = onTerminate;
-  return () => {
-    slot.__deferredLoadTerminatorForTest = previous;
-  };
-}
-
-function throwingTrap(
-  onReason: (reason: string) => void = () => {},
-): () => void {
+function throwingTrap(onReason: (reason: string) => void): () => void {
   return installTerminatorTrap((reason) => {
     onReason(reason);
     throw new DeferredLoadTerminated(reason);
@@ -167,7 +160,7 @@ describe("lazy", () => {
       const lines = loggedLines(errorSpy);
       assert.equal(lines.length, 1);
       const line = lines[0] ?? "";
-      assert.ok(line.includes("reason=deferred_module_load_failed"));
+      assert.ok(line.startsWith(`${LOAD_FAILURE_MARKER} `));
       assert.ok(line.includes("partition=test-partition"));
       assert.ok(line.includes("operation=test.operation"));
       assert.ok(line.includes('error="chunk unavailable"'));
@@ -210,7 +203,7 @@ describe("lazy", () => {
       const lines = loggedLines(errorSpy);
       assert.equal(lines.length, 2);
       for (const line of lines) {
-        assert.ok(line.includes("reason=deferred_module_load_failed"));
+        assert.ok(line.startsWith(`${LOAD_FAILURE_MARKER} `));
       }
     } finally {
       errorSpy.mock.restore();
@@ -221,7 +214,7 @@ describe("lazy", () => {
   it("logs a frozen loader failure's message before terminating", async () => {
     // The diagnostic must read a non-extensible thrown value without itself
     // throwing, on the path to the crash.
-    const restore = throwingTrap();
+    const restore = installTerminatorTrap();
     const errorSpy = silenceConsoleError();
     try {
       const frozenFailure = Object.freeze(new Error("chunk unavailable"));
@@ -289,9 +282,14 @@ describe("lazy", () => {
 });
 
 describe("attemptToCrashTheIsolate", () => {
-  it("routes through the installed test trap (never the real memory crash)", () => {
-    // Guards the seam itself: with a trap installed the exported crash entry
-    // throws rather than spinning, so no test can exhaust the runner through it.
+  it("uses the installed trap and restores the previous one", (t) => {
+    // A test-specific trap must restore any trap installed by suite setup.
+    const previousError = new Error("suite trap");
+    t.after(
+      installTerminatorTrap(() => {
+        throw previousError;
+      }),
+    );
     let seen = "";
     const restore = throwingTrap((reason) => {
       seen = reason;
@@ -305,6 +303,13 @@ describe("attemptToCrashTheIsolate", () => {
     } finally {
       restore();
     }
+
+    // Fail without entering real termination if restore cleared the slot.
+    assert.ok((globalThis as TerminatorTrapSlot)[TERMINATOR_TRAP_KEY]);
+    assert.throws(
+      () => attemptToCrashTheIsolate("after restore"),
+      (error) => error === previousError,
+    );
   });
 });
 

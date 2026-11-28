@@ -7,19 +7,22 @@ needs before it can serve a request.
 
 ## What it is
 
-One package with two entries that never meet:
+The package has separate entry points for runtime, lint, and tests:
 
 - `@curlewlabs-com/worker-lazy` - the runtime primitive.
   `lazy(loader, context)` returns an accessor for a module that is loaded the
   first time the accessor is called; `withLazy(accessor, use)` calls into that
-  module. No dependencies; the entry bundles to under a kilobyte minified.
+  module. The runtime entry has no dependencies outside the package.
 - `@curlewlabs-com/worker-lazy/eslint` - an ESLint plugin with three rules that
   make deferral the default: a static import has to defer through `lazy()` or
   say why it cannot, a dynamic `import()` is allowed only as a `lazy()` loader,
   and the Worker's entry handlers stay synchronous so the loaded path adds no
   microtask. A fourth rule keeps a request from awaiting a promise that
-  another request created. A Worker that imports the primitive bundles none of
-  the lint.
+  another request created.
+- `@curlewlabs-com/worker-lazy/testing` - a trap for testing isolate termination.
+
+A Worker that imports the runtime entry bundles neither the lint plugin nor
+the test installer.
 
 ## Why it exists
 
@@ -113,8 +116,8 @@ method returns `withLazy(...)` into the module that holds its body.
   loaded, or a promise of it on the cold call.
 - The accessor itself returns the module, or a promise of it on the cold call.
 
-When a load fails, `lazy()` writes one line with `console.error` and then ends
-the isolate:
+When a load fails, `lazy()` writes a line starting with `LOAD_FAILURE_MARKER`
+to `console.error` before ending the isolate:
 
 ```text
 [deferred-load] reason=deferred_module_load_failed partition=api operation=fetch error="..." stack="..."
@@ -126,52 +129,57 @@ the isolate:
 load, has found the isolate itself unusable - state that cannot be trusted for
 any later request - and needs it gone rather than serving on. Workers gives
 application code no way to kill an isolate and no second thread, so the only
-lever is resource exhaustion: it logs `[deferred-load] TERMINATING isolate -
-<reason>`, then allocates and touches memory until the isolate passes the
-platform's 128 MB memory limit, and falls through to spinning against the CPU
+lever is resource exhaustion: it logs a line starting with `TERMINATING_MARKER`,
+then allocates and touches memory until the isolate passes the platform's
+128 MB memory limit, and falls through to spinning against the CPU
 limit if allocation stops succeeding. It never returns and never awaits, so no
 `catch` or `finally` above it runs. Use it only where serving a degraded result
 would be worse than failing every request on that isolate.
 
 ### Testing a load failure
 
-The real failure path would exhaust the test process, so a test installs a
-replacement first. Set `globalThis.__deferredLoadTerminatorForTest` to a
-function that throws, and `attemptToCrashTheIsolate` calls it instead of
-allocating:
+Install the trap around a test that exercises a load failure. The default
+trap throws `DeferredLoadTerminated` so tests can assert the isolate would
+terminate. Restore the previous trap in `finally`.
 
 ```ts
-globalThis.__deferredLoadTerminatorForTest = (reason) => {
-  throw new Error(`terminated: ${reason}`);
-};
-// ...exercise a lazy() whose loader rejects, expect that error...
-delete globalThis.__deferredLoadTerminatorForTest;
+import assert from "node:assert/strict";
+import {
+  DeferredLoadTerminated,
+  installTerminatorTrap,
+} from "@curlewlabs-com/worker-lazy/testing";
+
+const restore = installTerminatorTrap();
+try {
+  await assert.rejects(async () => load(), DeferredLoadTerminated);
+} finally {
+  restore();
+}
 ```
 
-It is read from `globalThis` rather than a module binding so it survives a test
-runner re-importing the module graph. In a deployed Worker it is undefined, and
-reading it costs one property lookup on a path that only runs when the isolate
-is about to end.
+Here `load` is a `lazy()` accessor with a rejecting loader. The trap survives
+module reloads. To inspect the termination reason before throwing, pass a
+throwing callback to `installTerminatorTrap`.
 
 ### The lint rules
 
 ```js
 // eslint.config.mjs
-import deferredLoading from "@curlewlabs-com/worker-lazy/eslint";
+import workerLazy from "@curlewlabs-com/worker-lazy/eslint";
 
 export default [
   {
     files: ["src/**/*.ts"],
-    plugins: { "deferred-loading": deferredLoading },
+    plugins: { "worker-lazy": workerLazy },
     rules: {
-      "deferred-loading/no-static-value-import": "error",
-      "deferred-loading/dynamic-import-in-lazy-only": "error",
+      "worker-lazy/no-static-value-import": "error",
+      "worker-lazy/dynamic-import-in-lazy-only": "error",
     },
   },
   {
     // Only the modules holding the entry handlers and Durable Object classes.
     files: ["src/index.ts"],
-    rules: { "deferred-loading/non-async-dispatch-shell": "error" },
+    rules: { "worker-lazy/non-async-dispatch-shell": "error" },
   },
 ];
 ```

@@ -1,8 +1,7 @@
 // Proves the package's runtime entry bundles to the primitive alone. The package
-// exists for what a Worker evaluates at isolate start, so the lint entry, or any
-// dependency, reaching a Worker's bundle through an import of the package would
-// defeat it. Run against a directory where the packed tarball is installed,
-// which is what a consumer's bundler resolves.
+// exists for what a Worker evaluates at isolate start, so the lint and test
+// entries must stay out of its bundle. This runs against an installed tarball
+// to exercise the same export resolution as a consumer's bundler.
 //
 //   node scripts/check-runtime-bundle.ts <directory the packed tarball is installed in>
 import assert from "node:assert/strict";
@@ -18,7 +17,7 @@ const absWorkingDir = resolve(consumerDir);
 const result = await build({
   stdin: {
     contents:
-      'export { attemptToCrashTheIsolate, lazy, withLazy } from "@curlewlabs-com/worker-lazy";',
+      'export { attemptToCrashTheIsolate, lazy, LOAD_FAILURE_MARKER, TERMINATING_MARKER, withLazy } from "@curlewlabs-com/worker-lazy";',
     resolveDir: absWorkingDir,
     loader: "js",
   },
@@ -34,11 +33,12 @@ const result = await build({
   write: false,
 });
 
-const inputs = Object.keys(result.metafile.inputs).filter(
-  (input) => input !== "<stdin>",
-);
+const inputs = Object.keys(result.metafile.inputs)
+  .filter((input) => input !== "<stdin>")
+  .sort();
 assert.deepEqual(inputs, [
   "node_modules/@curlewlabs-com/worker-lazy/dist/lazy.js",
+  "node_modules/@curlewlabs-com/worker-lazy/dist/terminator-trap.js",
 ]);
 
 const [output] = result.outputFiles;
@@ -48,5 +48,5 @@ assert.ok(output !== undefined);
 assert.ok(!output.text.includes("deferred-loading static-edge"));
 
 console.log(
-  `runtime entry bundles to ${inputs.join(", ")} only: ${output.contents.byteLength} bytes minified`,
+  `runtime entry bundles only ${inputs.join(", ")}: ${output.contents.byteLength} bytes minified`,
 );

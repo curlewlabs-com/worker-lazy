@@ -15,7 +15,11 @@
       "types": "./dist/lazy.d.ts",
       "default": "./dist/lazy.js"
     },
-    "./eslint": "./eslint/index.mjs"
+    "./eslint": "./eslint/index.mjs",
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
   },
   "files": [
     "dist",
