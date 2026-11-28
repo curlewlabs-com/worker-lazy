@@ -40,6 +40,15 @@
 // isolate is the only retry, and a post-deploy check that reads the diagnostic
 // can roll the deploy back.
 
+import {
+  TERMINATOR_TRAP_KEY,
+  type TerminatorTrapSlot,
+} from "./terminator-trap.ts";
+
+export const LOAD_FAILURE_MARKER =
+  "[deferred-load] reason=deferred_module_load_failed";
+export const TERMINATING_MARKER = "[deferred-load] TERMINATING isolate";
+
 // These fields are diagnostic only - they label the deferred-load failure log
 // (below) so a broken-deploy load fault is easier to attribute; neither affects
 // loading behavior. Both are facts about the declaration itself - which module
@@ -88,20 +97,11 @@ function allocateAndHold(size: number): void {
 // through to a CPU-limit spin once nothing more fits. Never returns, never awaits -
 // the thread stays pinned so no catch/finally upstack can run.
 export function attemptToCrashTheIsolate(reason: string): never {
-  // Test seam: a test suite installs a throwing trap here so a load-failure test
-  // can assert termination without exhausting the runner. Undefined in a deployed
-  // Worker (one property read on a path that never runs there); read from
-  // globalThis - not a module binding - so it survives a test runner re-importing
-  // the module graph under test (vi.resetModules(), for one).
-  const trap = (
-    globalThis as {
-      __deferredLoadTerminatorForTest?: (reason: string) => never;
-    }
-  ).__deferredLoadTerminatorForTest;
+  const trap = (globalThis as TerminatorTrapSlot)[TERMINATOR_TRAP_KEY];
   if (trap !== undefined) trap(reason);
 
   try {
-    console.error(`[deferred-load] TERMINATING isolate - ${reason}`);
+    console.error(`${TERMINATING_MARKER} - ${reason}`);
   } catch {
     // A logging failure must never stop the crash from proceeding.
   }
@@ -154,7 +154,7 @@ export function lazy<T>(
         // buffer), then terminate the isolate.
         try {
           console.error(
-            `[deferred-load] reason=deferred_module_load_failed partition=${context.partition} operation=${context.operation} error=${JSON.stringify(printableError(err))} stack=${JSON.stringify(errorStack(err))}`,
+            `${LOAD_FAILURE_MARKER} partition=${context.partition} operation=${context.operation} error=${JSON.stringify(printableError(err))} stack=${JSON.stringify(errorStack(err))}`,
           );
         } catch {
           // The diagnostic is best-effort; nothing that goes wrong while

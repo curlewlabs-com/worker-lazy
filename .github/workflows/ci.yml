@@ -31,8 +31,8 @@ jobs:
       - uses: curlewlabs-com/ci-baseline/typed@c737cbfb15dc18daffdcc34a2f01e114a389643f # v0.3.8
       - run: npm test
       # The tests import the TypeScript source; this proves the tarball a
-      # consumer installs carries both entries, that they load, and that a
-      # Worker bundling the runtime entry gets the primitive and nothing else.
+      # consumer installs resolves the public entries and that the Worker
+      # bundle stays free of the lint plugin and test installer.
       - name: Install the packed tarball, import it, and bundle the runtime entry
         run: |
           npm pack --pack-destination "$RUNNER_TEMP"
@@ -49,12 +49,21 @@ jobs:
             tar -xzf "$RUNNER_TEMP"/curlewlabs-com-worker-lazy-*.tgz --strip-components=1 \
               -C node_modules/@curlewlabs-com/worker-lazy
             node --input-type=module -e '
+              import assert from "node:assert/strict";
               import { lazy, withLazy } from "@curlewlabs-com/worker-lazy";
               import plugin from "@curlewlabs-com/worker-lazy/eslint";
+              import { DeferredLoadTerminated, installTerminatorTrap } from "@curlewlabs-com/worker-lazy/testing";
               const load = lazy(() => Promise.resolve({ v: 1 }), { partition: "p", operation: "o" });
               if ((await withLazy(load, (m) => m.v)) !== 1) throw new Error("cold path");
               if (withLazy(load, (m) => m.v) !== 1) throw new Error("warm path was not synchronous");
               if (Object.keys(plugin.rules).length !== 4) throw new Error("lint entry");
+              const fail = lazy(() => Promise.reject(new Error("missing chunk")), { partition: "p", operation: "o" });
+              const restore = installTerminatorTrap();
+              try {
+                await assert.rejects(fail, DeferredLoadTerminated);
+              } finally {
+                restore();
+              }
             '
           )
           node scripts/check-runtime-bundle.ts "$consumer"
