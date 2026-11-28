@@ -313,13 +313,6 @@ describe("attemptToCrashTheIsolate", () => {
   });
 
   it("restores the legacy trap after out-of-order cleanup across a reload", async () => {
-    // A different URL re-evaluates the testing entry in this same realm.
-    const testingUrl = new URL("../src/testing.ts", import.meta.url);
-    testingUrl.search = "reload";
-    const { installTerminatorTrap: installAfterReload } = (await import(
-      testingUrl.href
-    )) as typeof import("../src/testing.ts");
-
     // Use the published legacy spelling independently of the package constant.
     const slot = globalThis as {
       __deferredLoadTerminatorForTest?: ((reason: string) => never) | undefined;
@@ -336,29 +329,40 @@ describe("attemptToCrashTheIsolate", () => {
     slot.__deferredLoadTerminatorForTest = legacyTrap;
 
     const restoreOlder = installTerminatorTrap(sharedCallback);
-    const older = slot.__deferredLoadTerminatorForTest;
-    const restoreNewer = installAfterReload(sharedCallback);
-    const newer = slot.__deferredLoadTerminatorForTest;
-
     try {
+      const older = slot.__deferredLoadTerminatorForTest;
+      assert.ok(older);
       assert.notEqual(older, legacyTrap);
-      assert.ok(newer);
-      assert.notEqual(newer, older);
-      restoreOlder();
-      assert.equal(slot.__deferredLoadTerminatorForTest, newer);
-      assert.throws(
-        () => attemptToCrashTheIsolate("older restored"),
-        (error) => error === sharedError,
-      );
+      // A different URL re-evaluates the testing entry in this same realm.
+      const testingUrl = new URL("../src/testing.ts", import.meta.url);
+      testingUrl.search = "reload";
+      const { installTerminatorTrap: installAfterReload } = (await import(
+        testingUrl.href
+      )) as typeof import("../src/testing.ts");
 
-      restoreNewer();
-      assert.equal(slot.__deferredLoadTerminatorForTest, legacyTrap);
-      assert.throws(
-        () => attemptToCrashTheIsolate("newer restored"),
-        (error) => error === legacyError,
-      );
+      assert.equal(slot.__deferredLoadTerminatorForTest, older);
+      const restoreNewer = installAfterReload(sharedCallback);
+      try {
+        const newer = slot.__deferredLoadTerminatorForTest;
+        assert.ok(newer);
+        assert.notEqual(newer, older);
+        restoreOlder();
+        assert.equal(slot.__deferredLoadTerminatorForTest, newer);
+        assert.throws(
+          () => attemptToCrashTheIsolate("older restored"),
+          (error) => error === sharedError,
+        );
+
+        restoreNewer();
+        assert.equal(slot.__deferredLoadTerminatorForTest, legacyTrap);
+        assert.throws(
+          () => attemptToCrashTheIsolate("newer restored"),
+          (error) => error === legacyError,
+        );
+      } finally {
+        restoreNewer();
+      }
     } finally {
-      restoreNewer();
       restoreOlder();
       slot.__deferredLoadTerminatorForTest = previous;
     }
