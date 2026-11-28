@@ -69,8 +69,11 @@ This package is not published to the npm registry. Install it from a GitHub
 release's tarball URL, which your lockfile pins by its integrity hash:
 
 ```sh
-npm install https://github.com/curlewlabs-com/worker-lazy/releases/download/v0.5.0/curlewlabs-com-worker-lazy-0.5.0.tgz
+npm install 'https://github.com/curlewlabs-com/worker-lazy/releases/download/<tag>/curlewlabs-com-worker-lazy-<version>.tgz'
 ```
+
+Copy the exact install command from the
+[latest release notes](https://github.com/curlewlabs-com/worker-lazy/releases/latest).
 
 The exported diagnostic markers and the `/testing` entry require v0.5.0 or
 newer.
